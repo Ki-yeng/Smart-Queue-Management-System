@@ -1,10 +1,12 @@
-// backend/src/routes/userRoutes.js
+// src/routes/userRoutes.js
 const express = require('express');
 const router = express.Router();
 
-// Test route
+// Example user route
 router.get('/', (req, res) => {
-  res.send('User routes working!');
+  res.send('User route works!');
 });
+
+// Add more routes here (login, register, etc.)
 
 module.exports = router;
