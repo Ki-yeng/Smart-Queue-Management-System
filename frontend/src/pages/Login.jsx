@@ -53,6 +53,7 @@ const Login = () => {
               onChange={(e) => setEmail(e.target.value)}
               required
               placeholder="you@student.kca.ac.ke"
+              autoComplete="email"
               className="w-full px-4 py-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-300"
             />
           </div>
@@ -65,6 +66,7 @@ const Login = () => {
               onChange={(e) => setPassword(e.target.value)}
               required
               placeholder="********"
+              autoComplete="current-password"
               className="w-full px-4 py-2 border border-gray-200 rounded-md focus:ring-2 focus:ring-indigo-300"
             />
           </div>

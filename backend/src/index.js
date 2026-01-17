@@ -31,11 +31,16 @@ app.get("/", (req, res) =>
 );
 
 // MongoDB
-mongoose.connect(process.env.MONGO_URI)
+const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/kcau-queue";
+console.log(`🔗 Connecting to MongoDB: ${mongoUri.replace(/\/\/.*:.*@/, "//***:***@")}`);
+
+mongoose.connect(mongoUri)
   .then(() => console.log("✅ MongoDB connected"))
   .catch(err => {
     console.error("❌ MongoDB connection error:", err.message);
-    process.exit(1);
+    console.error("⚠️  Make sure MongoDB is running or check MONGO_URI in .env");
+    // Don't exit - allow server to run with fallback
+    console.log("ℹ️  Server will continue running (some features may not work)");
   });
 
 // Socket.IO (SAFE INIT)
@@ -45,13 +50,32 @@ try {
     cors: {
       origin: "http://localhost:5173",
       methods: ["GET", "POST"],
+      credentials: true,
     },
+    transports: ["websocket", "polling"],
+    pingInterval: 25000,
+    pingTimeout: 20000,
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 5,
   });
 
   io.on("connection", (socket) => {
     console.log("🟢 Socket connected:", socket.id);
-    socket.on("disconnect", () => {
-      console.log("🔴 Socket disconnected:", socket.id);
+
+    // Handle custom events
+    socket.on("joinQueue", (data) => {
+      socket.join(`queue-${data.serviceType}`);
+      console.log(`User joined queue-${data.serviceType}`);
+    });
+
+    socket.on("disconnect", (reason) => {
+      console.log("🔴 Socket disconnected:", socket.id, "Reason:", reason);
+    });
+
+    socket.on("error", (error) => {
+      console.error("❌ Socket error:", error);
     });
   });
 

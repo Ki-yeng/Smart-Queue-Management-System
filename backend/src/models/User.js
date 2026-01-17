@@ -33,6 +33,44 @@ const userSchema = new mongoose.Schema(
       enum: ["admin", "staff", "customer"], // allowed roles only
       default: "customer", // if not specified, default is 'customer'
     },
+
+    // Department (for staff/admin)
+    department: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
+    // Track which admin created this staff/admin account
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    // Account status (for disabling accounts without deletion)
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+
+    // Last login timestamp
+    lastLogin: {
+      type: Date,
+      default: null,
+    },
+
+    // Refresh token for token refresh mechanism
+    refreshToken: {
+      type: String,
+      default: null,
+    },
+
+    // Refresh token expiration
+    refreshTokenExpires: {
+      type: Date,
+      default: null,
+    },
   },
 
   // Automatically adds createdAt and updatedAt fields

@@ -7,24 +7,39 @@ const {
   serveTicket,
   completeTicket,
   cancelTicket,
-  getAllTickets, // for staff dashboard
+  getAllTickets,
+  getWaitingTickets,
+  getTicketById,
 } = require("../controllers/ticketController");
 
-// Protect middleware (optional: only staff/admin)
-const { protect } = require("../middleware/authMiddleware");
+// Auth middleware
+const { protect, staffOnly, allowRoles } = require("../middleware/authMiddleware");
 
-// Create a new ticket (student)
+// ===== PUBLIC ROUTES =====
+// Create a new ticket (students/customers)
 router.post("/create", createTicket);
 
-// Get next waiting ticket by service type
+// Get next waiting ticket by service type (public info)
 router.get("/next/:serviceType", getNextTicket);
 
-// Get all tickets for staff dashboard
-router.get("/", protect, getAllTickets);
+// ===== PROTECTED ROUTES (Staff & Admin Only) =====
 
-// Serve, complete, cancel ticket
-router.put("/serve/:id", protect, serveTicket);
-router.put("/complete/:id", protect, completeTicket);
-router.put("/cancel/:id", protect, cancelTicket);
+// Get all tickets for staff dashboard (staff/admin only)
+router.get("/", protect, staffOnly, getAllTickets);
+
+// Get waiting tickets with optional service type filter (staff/admin only)
+router.get("/waiting", protect, staffOnly, getWaitingTickets);
+
+// Get ticket by ID (staff/admin only)
+router.get("/:id", protect, staffOnly, getTicketById);
+
+// Serve ticket (staff/admin only)
+router.put("/serve/:id", protect, staffOnly, serveTicket);
+
+// Complete ticket (staff/admin only)
+router.put("/complete/:id", protect, staffOnly, completeTicket);
+
+// Cancel ticket (staff/admin only)
+router.put("/cancel/:id", protect, staffOnly, cancelTicket);
 
 module.exports = router;

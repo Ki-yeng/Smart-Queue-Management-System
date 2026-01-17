@@ -37,6 +37,11 @@ export const loginUser = async ({ email, password }) => {
       localStorage.setItem("user", JSON.stringify(response.data.user));
     }
 
+    // Save refresh token
+    if (response.data.refreshToken) {
+      localStorage.setItem("refreshToken", response.data.refreshToken);
+    }
+
     return response.data;
   } catch (err) {
     console.error("Login error:", err.response?.data || err);
@@ -45,10 +50,61 @@ export const loginUser = async ({ email, password }) => {
 };
 
 /**
+ * Refresh access token using refresh token
+ * @returns {Object} { token, user } or null if failed
+ */
+export const refreshAccessToken = async () => {
+  const refreshToken = localStorage.getItem("refreshToken");
+
+  if (!refreshToken) {
+    console.warn("No refresh token available");
+    return null;
+  }
+
+  try {
+    const response = await axios.post(`${API_URL}/refresh`, { refreshToken }, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    // Save new access token
+    if (response.data.token) {
+      localStorage.setItem("token", response.data.token);
+      console.log("✅ Access token refreshed");
+      return response.data;
+    }
+
+    return null;
+  } catch (err) {
+    console.warn("⚠️ Token refresh failed:", err.response?.data?.message || err.message);
+    // Refresh token is invalid or expired - user needs to login again
+    logoutUser(); // Clear tokens on refresh failure
+    return null;
+  }
+};
+
+/**
  * Logout user
  */
-export const logoutUser = () => {
+export const logoutUser = async () => {
+  const token = localStorage.getItem("token");
+  
+  // Call backend logout endpoint if token exists
+  if (token) {
+    try {
+      await axios.post(
+        `${API_URL}/logout`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (err) {
+      console.warn("Backend logout error:", err.response?.data || err);
+      // Continue with frontend logout even if backend call fails
+    }
+  }
+  
+  // Clear all tokens from local storage
   localStorage.removeItem("token");
+  localStorage.removeItem("refreshToken");
   localStorage.removeItem("user");
 };
 

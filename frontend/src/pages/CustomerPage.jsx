@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createTicket, getNextTicket } from "../services/ticketService";
-import SidebarLayout from "../components/sidebarLayout";
+// Sidebar removed: student dashboard should render full-width without sidebar
 import { getCurrentUser } from "../services/authService";
 
 const announcements = [
@@ -133,8 +133,7 @@ const CustomerPage = () => {
   };
 
   return (
-    <SidebarLayout>
-      <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-6xl mx-auto">
           {/* Topbar / SSO header */}
           <div className="flex items-center justify-between bg-white rounded-xl shadow p-4 mb-6">
@@ -264,7 +263,6 @@ const CustomerPage = () => {
           </div>
         </div>
       </div>
-    </SidebarLayout>
   );
 };
 

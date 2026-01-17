@@ -61,6 +61,51 @@ exports.getAllTickets = async (req, res) => {
 };
 
 /**
+ * Get waiting tickets with optional service type filter
+ */
+exports.getWaitingTickets = async (req, res) => {
+  try {
+    const { serviceType } = req.query;
+    let query = { status: "waiting" };
+
+    // Filter by serviceType if provided
+    if (serviceType) {
+      query.serviceType = serviceType;
+    }
+
+    const tickets = await Ticket.find(query)
+      .sort({ createdAt: 1 })
+      .populate("userId", "name email");
+
+    res.json(tickets);
+  } catch (err) {
+    console.error("Get waiting tickets error:", err);
+    res.status(500).json({ message: "Failed to load waiting tickets" });
+  }
+};
+
+/**
+ * Get ticket by ID
+ */
+exports.getTicketById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ticket = await Ticket.findById(id)
+      .populate("userId", "name email")
+      .populate("counterId", "counterName status");
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    res.json(ticket);
+  } catch (err) {
+    console.error("Get ticket by ID error:", err);
+    res.status(500).json({ message: "Failed to load ticket" });
+  }
+};
+
+/**
  * Serve ticket
  */
 exports.serveTicket = async (req, res) => {
