@@ -34,6 +34,19 @@ const ticketSchema = new mongoose.Schema(
       default: "waiting",
     },
 
+    // Priority level for the ticket (higher number = higher priority)
+    priority: {
+      type: String,
+      enum: ["normal", "high", "urgent", "vip"],
+      default: "normal",
+    },
+
+    // Priority score for sorting (automatically calculated)
+    priorityScore: {
+      type: Number,
+      default: 0,
+    },
+
     // Optional: student/user who created the ticket
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -46,6 +59,38 @@ const ticketSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Time when ticket was completed
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Time when ticket was cancelled
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Transfer history to track which counters this ticket has been served at
+    transferHistory: [
+      {
+        fromCounterId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Counter",
+        },
+        toCounterId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Counter",
+        },
+        transferredAt: {
+          type: Date,
+          default: Date.now,
+        },
+        reason: String,
+      },
+    ],
+
     counterId: {
   type: mongoose.Schema.Types.ObjectId,
   ref: "Counter",

@@ -71,6 +71,25 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Student classification (for priority queuing)
+    studentYear: {
+      type: String,
+      enum: ["First Year", "Second Year", "Third Year", "Final Year", "Postgraduate"],
+      default: null,
+    },
+
+    // VIP/Priority status
+    isVIP: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Accessibility needs (for priority accommodation)
+    hasAccessibilityNeeds: {
+      type: Boolean,
+      default: false,
+    },
   },
 
   // Automatically adds createdAt and updatedAt fields

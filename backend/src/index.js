@@ -64,10 +64,38 @@ try {
   io.on("connection", (socket) => {
     console.log("🟢 Socket connected:", socket.id);
 
-    // Handle custom events
-    socket.on("joinQueue", (data) => {
-      socket.join(`queue-${data.serviceType}`);
-      console.log(`User joined queue-${data.serviceType}`);
+    // Join dashboard room (for staff monitoring)
+    socket.on("joinDashboard", () => {
+      socket.join("dashboard");
+      console.log(`📊 User joined dashboard room`);
+    });
+
+    // Join specific service type queue (e.g., Finance, Admissions)
+    socket.on("joinServiceQueue", (data) => {
+      const { serviceType } = data;
+      socket.join(`service-${serviceType}`);
+      console.log(`📍 User joined queue for ${serviceType}`);
+    });
+
+    // Join counter-specific room (for counter staff)
+    socket.on("joinCounter", (data) => {
+      const { counterId } = data;
+      socket.join(`counter-${counterId}`);
+      console.log(`🏪 User joined counter room: ${counterId}`);
+    });
+
+    // Join user-specific room (for ticket status notifications)
+    socket.on("joinUserRoom", (data) => {
+      const { userId } = data;
+      socket.join(`user-${userId}`);
+      console.log(`👤 User joined personal room: ${userId}`);
+    });
+
+    // Leave specific room
+    socket.on("leaveRoom", (data) => {
+      const { room } = data;
+      socket.leave(room);
+      console.log(`✌️  User left room: ${room}`);
     });
 
     socket.on("disconnect", (reason) => {
