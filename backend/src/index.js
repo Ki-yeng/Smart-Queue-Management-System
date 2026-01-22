@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
+const { startLoadBalancingMonitor } = require("./utils/loadBalancer");
 
 const app = express();
 const server = http.createServer(app);
@@ -16,16 +17,18 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Routes (UNCHANGED)
+// Routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/tickets", require("./routes/ticketRoutes"));
 app.use("/api/counters", require("./routes/counterRoutes"));
 app.use("/api/dashboard", require("./routes/dashboardRoutes"));
 app.use("/api/products", require("./routes/products"));
 app.use("/api/users", require("./routes/userRoutes"));
+app.use("/api/load-balance", require("./routes/loadBalancingRoutes"));
+app.use("/api/health", require("./routes/healthRoutes"));
+app.use("/api/integrations", require("./routes/integrationRoutes"));
 
 // Test routes
-app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 app.get("/", (req, res) =>
   res.send("Smart Queue Management System Backend is running")
 );
@@ -108,6 +111,11 @@ try {
   });
 
   app.set("io", io);
+
+  // Start real-time load balancing monitor
+  // Emits load metrics every 10 seconds to all connected clients
+  startLoadBalancingMonitor(io, 10000);
+  console.log("📊 Load balancing monitor started (updates every 10 seconds)");
 } catch (err) {
   console.error("❌ Socket.IO failed to start:", err.message);
 }

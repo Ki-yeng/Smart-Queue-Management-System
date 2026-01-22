@@ -153,6 +153,21 @@ const emitDashboardStats = (io, stats) => {
   });
 };
 
+/**
+ * Emit load balancing metrics update
+ * Called by the load balancing monitor to broadcast real-time metrics
+ */
+const emitLoadMetricsUpdated = (io, metricsData) => {
+  if (!io) return;
+
+  io.emit("loadMetricsUpdated", {
+    ...metricsData,
+    timestamp: new Date(),
+  });
+
+  console.log(`📊 Load metrics broadcast - System Load: ${metricsData.summary?.systemLoad}`);
+};
+
 module.exports = {
   emitTicketStatusUpdate,
   emitTicketCreated,
@@ -164,4 +179,5 @@ module.exports = {
   emitQueueUpdated,
   emitCounterStatusUpdated,
   emitDashboardStats,
+  emitLoadMetricsUpdated,
 };

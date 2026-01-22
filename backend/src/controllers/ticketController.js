@@ -3,6 +3,8 @@ const Ticket = require("../models/Ticket");
 const Counter = require("../models/Counter");
 const User = require("../models/User");
 const { calculatePriorityScore, determinePriorityLevel, sortByPriority } = require("../utils/priorityHelper");
+const { findBestCounterForTicket } = require("../utils/loadBalancer");
+const { updateCounterMetricsOnCompletion } = require("../utils/metricsCalculator");
 const {
   emitTicketCreated,
   emitTicketServing,
@@ -39,6 +41,7 @@ exports.createTicket = async (req, res) => {
       }
     }
 
+    // Create ticket without counter assignment first
     const ticket = await Ticket.create({
       ticketNumber: nextTicketNumber,
       serviceType,
@@ -50,6 +53,16 @@ exports.createTicket = async (req, res) => {
       priorityScore: calculatePriorityScore({ createdAt: new Date(), priority }, user),
     });
 
+    // Use load balancing to find best counter for this ticket
+    const bestCounter = await findBestCounterForTicket(serviceType, priority);
+    
+    let assignedCounter = null;
+    if (bestCounter) {
+      ticket.counterId = bestCounter.counterId;
+      await ticket.save();
+      assignedCounter = bestCounter;
+    }
+
     // Emit Socket.IO event
     const io = req.app?.get("io");
     if (io) {
@@ -60,6 +73,8 @@ exports.createTicket = async (req, res) => {
       message: "Ticket created", 
       ticket,
       priority: priority,
+      assignedCounter: assignedCounter,
+      estimatedWaitTime: assignedCounter?.estimatedWaitTime || 0,
     });
   } catch (err) {
     console.error("Create ticket error:", err);
@@ -268,6 +283,9 @@ exports.completeTicket = async (req, res) => {
         status: "open", 
         currentTicket: null 
       }, { new: true });
+
+      // Update counter metrics with ticket service time
+      await updateCounterMetricsOnCompletion(ticket.counterId, ticket);
     }
 
     // Emit Socket.IO events
