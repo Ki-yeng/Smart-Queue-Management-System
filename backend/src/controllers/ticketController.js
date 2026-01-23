@@ -14,6 +14,15 @@ const {
   emitTicketPriorityUpdated,
   emitQueueUpdated,
   emitCounterStatusUpdated,
+  emitCounterStatusChanged,
+  emitCounterStaffAssigned,
+  emitCounterMetricsUpdated,
+  emitCounterUpdateToStaff,
+  emitTicketToCounterStaff,
+  emitToServiceStaffOnly,
+  emitToUserOnly,
+  emitCounterUpdateToStaffAndDashboard,
+  emitTicketToServiceAndDashboard,
 } = require("../utils/socketEvents");
 
 /**
@@ -63,10 +72,11 @@ exports.createTicket = async (req, res) => {
       assignedCounter = bestCounter;
     }
 
-    // Emit Socket.IO event
+    // Emit Socket.IO events
     const io = req.app?.get("io");
     if (io) {
       emitTicketCreated(io, ticket);
+      emitQueueUpdated(io, ticket.serviceType);
     }
 
     res.status(201).json({ 
@@ -233,6 +243,7 @@ exports.serveTicket = async (req, res) => {
     const counter = await Counter.findById(counterId);
     if (!counter) return res.status(404).json({ message: "Counter not found" });
 
+    const oldCounterStatus = counter.status;
     ticket.status = "serving";
     ticket.servedAt = new Date();
     ticket.counterId = counter._id;
@@ -245,8 +256,37 @@ exports.serveTicket = async (req, res) => {
     // Emit Socket.IO events
     const io = req.app?.get("io");
     if (io) {
+      // Broadcast to all clients
       emitTicketServing(io, ticket, counter.counterName);
-      emitCounterStatusUpdated(io, counter);
+      
+      // Counter staff only sees their counter updates
+      emitCounterUpdateToStaff(io, counter, "counterStatusUpdated", {
+        reason: "Started serving ticket",
+        currentTicket: ticket._id,
+      });
+      emitCounterUpdateToStaff(io, counter, "counterStatusChanged", {
+        oldStatus: oldCounterStatus,
+        newStatus: counter.status,
+      });
+      
+      // Counter staff sees their assigned ticket
+      emitTicketToCounterStaff(io, ticket, counter._id, "ticketServing", {
+        counterName: counter.counterName,
+        message: `You are now serving ticket #${ticket.ticketNumber}`,
+      });
+      
+      // Service staff + dashboard see the update
+      emitTicketToServiceAndDashboard(io, ticket, "ticketServing", {
+        counterName: counter.counterName,
+      });
+      
+      // User sees their ticket is being served
+      if (ticket.userId) {
+        emitToUserOnly(io, ticket.userId, "ticketServing", {
+          ticketNumber: ticket.ticketNumber,
+          message: `Your ticket is being served at counter ${counter.counterName}`,
+        });
+      }
     }
 
     res.json({ message: "Ticket is now being served", ticket });
@@ -294,7 +334,10 @@ exports.completeTicket = async (req, res) => {
       emitTicketCompleted(io, ticket, counterName);
       if (updatedCounter) {
         emitCounterStatusUpdated(io, updatedCounter);
+        emitCounterStatusChanged(io, updatedCounter, "busy", "Ticket completed");
+        emitCounterMetricsUpdated(io, updatedCounter);
       }
+      emitQueueUpdated(io, ticket.serviceType);
     }
 
     res.json({ message: "Ticket completed", ticket });
@@ -334,10 +377,11 @@ exports.cancelTicket = async (req, res) => {
       });
     }
 
-    // Emit Socket.IO event
+    // Emit Socket.IO events
     const io = req.app?.get("io");
     if (io) {
       emitTicketCancelled(io, ticket);
+      emitQueueUpdated(io, ticket.serviceType);
     }
 
     res.json({ message: "Ticket cancelled successfully", ticket });
@@ -403,6 +447,7 @@ exports.transferTicket = async (req, res) => {
     await ticket.save();
 
     // Update old counter: remove current ticket
+    let oldCounterUpdated = oldCounter;
     if (oldCounter) {
       oldCounter.status = "open";
       oldCounter.currentTicket = null;
@@ -410,6 +455,7 @@ exports.transferTicket = async (req, res) => {
     }
 
     // Update new counter: set as current ticket
+    let newCounterUpdated = newCounter;
     newCounter.status = "busy";
     newCounter.currentTicket = ticket._id;
     await newCounter.save();
@@ -423,9 +469,12 @@ exports.transferTicket = async (req, res) => {
     // Emit Socket.IO events
     const io = req.app?.get("io");
     if (io) {
-      emitTicketTransferred(io, updatedTicket, oldCounter, newCounter);
-      emitCounterStatusUpdated(io, oldCounter);
-      emitCounterStatusUpdated(io, newCounter);
+      emitTicketTransferred(io, updatedTicket, oldCounterUpdated, newCounterUpdated);
+      emitCounterStatusUpdated(io, oldCounterUpdated);
+      emitCounterStatusChanged(io, oldCounterUpdated, "busy", "Ticket transferred");
+      emitCounterStatusUpdated(io, newCounterUpdated);
+      emitCounterStatusChanged(io, newCounterUpdated, "open", "Received transferred ticket");
+      emitQueueUpdated(io, updatedTicket.serviceType);
     }
 
     res.json({
@@ -475,6 +524,7 @@ exports.updateTicketPriority = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketPriorityUpdated(io, ticket, oldPriority);
+      emitQueueUpdated(io, ticket.serviceType);
     }
 
     res.json({
@@ -510,9 +560,17 @@ exports.markAsVIP = async (req, res) => {
       await User.findByIdAndUpdate(ticket.userId, { isVIP: true });
     }
 
+    const oldPriority = ticket.priority;
     ticket.priority = "vip";
     ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
     await ticket.save();
+
+    // Emit Socket.IO events
+    const io = req.app?.get("io");
+    if (io) {
+      emitTicketPriorityUpdated(io, ticket, oldPriority);
+      emitQueueUpdated(io, ticket.serviceType);
+    }
 
     res.json({
       message: "Ticket marked as VIP",
@@ -549,6 +607,13 @@ exports.markAccessibilityNeeds = async (req, res) => {
     ticket.priority = "high";
     ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
     await ticket.save();
+
+    // Emit Socket.IO events
+    const io = req.app?.get("io");
+    if (io) {
+      emitTicketPriorityUpdated(io, ticket, oldPriority);
+      emitQueueUpdated(io, ticket.serviceType);
+    }
 
     res.json({
       message: "Ticket marked with accessibility needs",
