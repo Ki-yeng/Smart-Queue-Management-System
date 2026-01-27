@@ -1,72 +1,45 @@
 // backend/src/routes/ticketRoutes.js
 const express = require("express");
 const router = express.Router();
-const {
-  createTicket,
-  getNextTicket,
-  serveTicket,
-  completeTicket,
-  cancelTicket,
-  transferTicket,
-  updateTicketPriority,
-  markAsVIP,
-  markAccessibilityNeeds,
-  getPriorityQueueSummary,
-  getAllTickets,
-  getWaitingTickets,
-  getTicketById,
-} = require("../controllers/ticketController");
+const ticketController = require("../controllers/ticketController");
 
-// Auth middleware
-const { protect, staffOnly, allowRoles } = require("../middleware/authMiddleware");
+// Create a new ticket (student)
+router.post("/", ticketController.createTicket);
 
-// ===== PUBLIC ROUTES =====
-// Create a new ticket (students/customers)
-router.post("/create", createTicket);
+// Get all tickets (with optional filters)
+router.get("/", ticketController.getAllTickets);
 
-// Get next waiting ticket by service type (public info)
-router.get("/next/:serviceType", getNextTicket);
+// Get waiting tickets (optional serviceType filter)
+router.get("/waiting", ticketController.getWaitingTickets);
 
-// Get public waiting tickets list with optional service type filter
-router.get("/list/waiting", getWaitingTickets);
+// Get next ticket for a service type
+router.get("/next/:serviceType", ticketController.getNextTicket);
 
-// ===== PROTECTED ROUTES (Staff & Admin Only) =====
-// NOTE: More specific routes (with suffixes) must come BEFORE generic :id routes
+// Get ticket by ID
+router.get("/:id", ticketController.getTicketById);
 
-// Get all tickets for staff dashboard with filtering (backward compatible)
-router.get("/", protect, staffOnly, getAllTickets);
+// Serve ticket
+router.put("/serve/:id", ticketController.serveTicket);
 
-// Get all tickets (alternative route)
-router.get("/all", protect, staffOnly, getAllTickets);
+// Complete ticket
+router.put("/complete/:id", ticketController.completeTicket);
 
-// Get priority queue summary
-router.get("/summary/priority", protect, staffOnly, getPriorityQueueSummary);
+// Cancel ticket
+router.put("/cancel/:id", ticketController.cancelTicket);
 
-// Get waiting tickets with optional service type filter (staff/admin only)
-router.get("/waiting", protect, staffOnly, getWaitingTickets);
+// Transfer ticket to another counter
+router.put("/transfer/:id", ticketController.transferTicket);
 
-// Serve ticket (staff/admin only)
-router.put("/serve/:id", protect, staffOnly, serveTicket);
+// Update ticket priority
+router.put("/priority/:id", ticketController.updateTicketPriority);
 
-// Complete ticket (staff/admin only)
-router.put("/complete/:id", protect, staffOnly, completeTicket);
+// Mark ticket as VIP
+router.put("/vip/:id", ticketController.markAsVIP);
 
-// Cancel ticket (staff/admin only)
-router.put("/cancel/:id", protect, staffOnly, cancelTicket);
+// Mark ticket as requiring accessibility accommodation
+router.put("/accessibility/:id", ticketController.markAccessibilityNeeds);
 
-// Transfer/Reassign ticket to a different counter (staff/admin only)
-router.put("/transfer/:id", protect, staffOnly, transferTicket);
-
-// Update ticket priority (staff/admin only)
-router.put("/priority/:id", protect, staffOnly, updateTicketPriority);
-
-// Mark ticket as VIP (staff/admin only)
-router.put("/vip/:id", protect, staffOnly, markAsVIP);
-
-// Mark ticket with accessibility needs (staff/admin only)
-router.put("/accessibility/:id", protect, staffOnly, markAccessibilityNeeds);
-
-// Get ticket by ID (staff/admin only) - MUST BE LAST
-router.get("/:id", protect, staffOnly, getTicketById);
+// Priority queue summary
+router.get("/summary/priority", ticketController.getPriorityQueueSummary);
 
 module.exports = router;

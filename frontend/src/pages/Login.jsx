@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loginUser } from "../services/authService"; // make sure your authService is correct
+import { loginUser } from "../services/authService"; // centralized auth
 
 const Login = () => {
   const navigate = useNavigate();
@@ -15,12 +15,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      // Call your backend API
       const data = await loginUser({ email, password });
-
-      // Store token and user info
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
 
       // Redirect based on role
       if (data.user.role === "admin") navigate("/admin");
@@ -28,7 +23,7 @@ const Login = () => {
       else navigate("/student");
 
     } catch (err) {
-      setError(err.response?.data?.message || "Login failed");
+      setError(err?.response?.data?.message || err?.message || "Login failed");
     } finally {
       setLoading(false);
     }
@@ -39,8 +34,6 @@ const Login = () => {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-indigo-600">KCAU Smart Queue</h1>
-          
-
           <p className="text-sm text-gray-500">Sign in to access your dashboard</p>
         </div>
 

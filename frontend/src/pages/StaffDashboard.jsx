@@ -18,12 +18,16 @@ const StaffDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [filterService, setFilterService] = useState("");
   const [user, setUser] = useState(null);
+  const [transferTarget, setTransferTarget] = useState("Finance");
+  const [actionLoading, setActionLoading] = useState(false);
+
   const pollingRef = useRef(null);
+  const callStartRef = useRef(null);
 
   const token = localStorage.getItem("token");
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-  // Load current user & start polling
+  // Load current user
   useEffect(() => {
     const initUser = async () => {
       try {
@@ -35,12 +39,14 @@ const StaffDashboard = () => {
       }
     };
     initUser();
+  }, []);
 
+  // Polling queue
+  useEffect(() => {
     fetchQueue();
-    if (pollingRef.current) clearInterval(pollingRef.current);
     pollingRef.current = setInterval(fetchQueue, 5000);
     return () => clearInterval(pollingRef.current);
-  }, [filterService]);
+  }, []);
 
   const fetchQueue = async () => {
     try {
@@ -57,15 +63,21 @@ const StaffDashboard = () => {
   };
 
   const callNext = async () => {
-    if (!queue.length) return;
+    if (!queue.length || actionLoading) return;
     const next = queue[0];
     setCurrentTicket(next);
     setQueue((q) => q.slice(1));
     fetchTicketDetails(next._id);
+    callStartRef.current = new Date();
 
+    setActionLoading(true);
     try {
       await axios.put(`${API_URL}/api/tickets/serve/${next._id}`, { counterId: null }, { headers: { Authorization: `Bearer ${token}` } });
-    } catch {}
+    } catch (err) {
+      console.warn("Call next API failed", err);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const fetchTicketDetails = async (id) => {
@@ -79,14 +91,19 @@ const StaffDashboard = () => {
   };
 
   const completeCurrent = async () => {
-    if (!currentTicket) return;
-    setTicketsServed((s) => s + 1);
-    setServiceTimes((t) => [...t, Math.floor(Math.random() * 8) + 3]); // mock handling time
+    if (!currentTicket || actionLoading) return;
 
+    const elapsed = callStartRef.current ? Math.round((new Date() - callStartRef.current) / 60000) : 5;
+    setServiceTimes((t) => [...t, elapsed]);
+    setTicketsServed((s) => s + 1);
+
+    setActionLoading(true);
     try {
       await axios.put(`${API_URL}/api/tickets/complete/${currentTicket._id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
     } catch {
       console.warn("complete ticket API failed");
+    } finally {
+      setActionLoading(false);
     }
 
     setCurrentTicket(null);
@@ -108,7 +125,7 @@ const StaffDashboard = () => {
       setSelectedTicketDetails((s) => ({
         ...s,
         ticket: res.ticket,
-        context: res.context || s.context, // prevent undefined
+        context: res.context || s.context,
       }));
       fetchQueue();
     } catch (err) {
@@ -119,20 +136,20 @@ const StaffDashboard = () => {
     }
   };
 
-  const doTransfer = async (toService) => {
-    if (!selectedTicketDetails?.ticket) return;
-    setLoading(true);
+  const doTransfer = async () => {
+    if (!selectedTicketDetails?.ticket || actionLoading) return;
+    setActionLoading(true);
     try {
-      const res = await transferTicket(selectedTicketDetails.ticket._id, toService, token);
+      const res = await transferTicket(selectedTicketDetails.ticket._id, transferTarget, token);
       setCurrentTicket(null);
       setSelectedTicketDetails(null);
       fetchQueue();
-      alert(`Transferred to ${toService} as Ticket #${res.ticket.ticketNumber}`);
+      alert(`Transferred to ${transferTarget} as Ticket #${res.ticket.ticketNumber}`);
     } catch (err) {
       console.error("doTransfer failed", err);
       alert("Transfer failed");
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
@@ -142,12 +159,11 @@ const StaffDashboard = () => {
     <SidebarLayout>
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
+
           {/* Live Queue */}
           <div className="bg-white rounded-xl shadow p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold">Live Queue</h3>
-              <div className="text-sm text-gray-500">Filter</div>
             </div>
 
             <select value={filterService} onChange={(e) => setFilterService(e.target.value)} className="w-full border p-2 rounded mb-3">
@@ -174,10 +190,10 @@ const StaffDashboard = () => {
               ))}
             </div>
 
-            <button onClick={callNext} className="mt-4 w-full bg-[#182B5C] text-white py-2 rounded">Call Next</button>
+            <button disabled={actionLoading} onClick={callNext} className="mt-4 w-full bg-[#182B5C] text-white py-2 rounded">{actionLoading ? 'Calling...' : 'Call Next'}</button>
           </div>
 
-          {/* Current student & actions */}
+          {/* Current Student */}
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-bold mb-3">Current Student</h3>
             {selectedTicketDetails?.ticket ? (
@@ -207,10 +223,17 @@ const StaffDashboard = () => {
                   ))}
                 </div>
 
-                <div className="flex gap-2">
-                  <button onClick={completeCurrent} className="flex-1 bg-[#182B5C] text-white py-2 rounded">Complete</button>
+                <div className="flex gap-2 items-center mb-2">
+                  <button onClick={completeCurrent} disabled={actionLoading} className="flex-1 bg-[#182B5C] text-white py-2 rounded">Complete</button>
                   <button onClick={putOnHold} className="flex-1 bg-gray-200 py-2 rounded">Hold</button>
-                  <button onClick={() => doTransfer('Finance')} className="flex-1 bg-[#D0B216] py-2 rounded">Transfer</button>
+                  <select value={transferTarget} onChange={(e) => setTransferTarget(e.target.value)} className="flex-1 border p-2 rounded">
+                    <option>Finance</option>
+                    <option>Admissions</option>
+                    <option>Examinations</option>
+                    <option>Library</option>
+                    <option>Accommodation</option>
+                  </select>
+                  <button onClick={doTransfer} disabled={actionLoading} className="flex-1 bg-[#D0B216] py-2 rounded">Transfer</button>
                 </div>
               </>
             ) : <div className="text-sm text-gray-500">Select or call a student to view details.</div>}
@@ -228,11 +251,12 @@ const StaffDashboard = () => {
             </div>
           </div>
 
-          {/* Manual registration */}
+          {/* Manual Registration */}
           <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
             <h3 className="font-bold mb-2">Manual Registration & Quick Actions</h3>
-            <ManualRegistration onRegistered={() => fetchQueue()} />
+            <ManualRegistration onRegistered={fetchQueue} />
           </div>
+
         </div>
       </div>
     </SidebarLayout>
@@ -270,6 +294,7 @@ const ManualRegistration = ({ onRegistered }) => {
         <option>Finance</option>
         <option>Library</option>
         <option>Examinations</option>
+        <option>Accommodation</option>
       </select>
       <button onClick={register} className="bg-[#D0B216] py-2 rounded">Register</button>
     </div>
