@@ -69,12 +69,19 @@ export const logoutUser = async () => {
 // Get current user
 export const getCurrentUser = async () => {
   const token = localStorage.getItem("token");
-  if (!token) return null;
+  if (!token) {
+    console.warn("No token found in localStorage. Using stored user fallback if available.");
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
+  }
   try {
-    const response = await axios.get(`${API_URL}/me`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await axios.get(`${API_URL}/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     return response.data;
   } catch (err) {
-    console.error("Get current user error:", err.response?.data || err);
-    return null;
+    console.warn("Get current user failed, using fallback stored user:", err.response?.data || err.message);
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : null;
   }
 };

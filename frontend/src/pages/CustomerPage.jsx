@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createTicket, getNextTicket, getLatestTicket } from "../services/ticketService";
 import { getCurrentUser } from "../services/authService";
+import ClearanceStatus from "../components/ClearanceStatus"; // ✅ ADD
 import io from "socket.io-client";
 
 const announcements = [
@@ -33,17 +34,23 @@ const CustomerPage = () => {
   const token = localStorage.getItem("token");
 
   /* ---------------- USER ---------------- */
-  useEffect(() => {
-    (async () => {
-      try {
-        const me = await getCurrentUser();
-        setUser(me.user || me);
-      } catch {
+  /* ---------------- USER ---------------- */
+useEffect(() => {
+  (async () => {
+    try {
+      const me = await getCurrentUser();
+      if (me) setUser(me.user || me);
+      else {
         const stored = localStorage.getItem("user");
         if (stored) setUser(JSON.parse(stored));
       }
-    })();
-  }, []);
+    } catch {
+      const stored = localStorage.getItem("user");
+      if (stored) setUser(JSON.parse(stored));
+    }
+  })();
+}, []);
+
 
   /* ---------------- LATEST TICKET ---------------- */
   useEffect(() => {
@@ -101,6 +108,7 @@ const CustomerPage = () => {
   }, []);
 
   /* ---------------- CLEARANCE (MOCK) ---------------- */
+  /*
   useEffect(() => {
     setClearance({
       finance: { status: "Paid" },
@@ -109,12 +117,12 @@ const CustomerPage = () => {
       library: { status: "Cleared" },
     });
   }, []);
+  */
 
   /* ---------------- CREATE TICKET ---------------- */
   const handleGenerateTicket = async () => {
     if (!user) return alert("User not loaded");
 
-    // Only one active ticket per student
     if (ticket && ticket.status !== "completed") {
       return alert(`You already have an active ticket for ${ticket.serviceType}. You can cancel it to join a new queue.`);
     }
@@ -127,8 +135,6 @@ const CustomerPage = () => {
         email: user.email,
         userId: user._id,
       });
-
-      if (!res || !res.ticket) throw new Error("Invalid ticket response");
 
       let newTicket = res.ticket;
 
@@ -191,15 +197,9 @@ const CustomerPage = () => {
 
           {/* LEFT */}
           <div className="space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">My Clearance Status</h3>
-              {Object.entries(clearance).map(([k, v]) => (
-                <div key={k} className="flex justify-between py-2 border-b">
-                  <span className="capitalize">{k}</span>
-                  <span className="font-bold text-green-600">{v.status}</span>
-                </div>
-              ))}
-            </div>
+
+            {/* ✅ ADD */}
+            <ClearanceStatus user={user} />
 
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Smart Actions</h3>

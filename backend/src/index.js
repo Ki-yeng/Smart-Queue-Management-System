@@ -10,6 +10,8 @@ const socketEvents = require("./utils/socketEvents");
 
 const app = express();
 const server = http.createServer(app);
+// ✅ ADD: Clearance routes (CommonJS – SAFE)
+const clearanceRoutes = require("./routes/clearanceRoutes");
 
 // Middleware
 app.use(cors({
@@ -28,6 +30,9 @@ app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/load-balance", require("./routes/loadBalancingRoutes"));
 app.use("/api/health", require("./routes/healthRoutes"));
 app.use("/api/integrations", require("./routes/integrationRoutes"));
+// Add this line to your routes section
+app.use("/api/clearance", require("./routes/clearanceRoutes"));
+
 
 // Test routes
 app.get("/", (req, res) =>
