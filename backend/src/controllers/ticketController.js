@@ -25,6 +25,7 @@ const {
   emitTicketToServiceAndDashboard,
 } = require("../utils/socketEvents");
 
+
 /**
  * Create a new ticket (student)
  */
@@ -89,6 +90,47 @@ exports.createTicket = async (req, res) => {
   } catch (err) {
     console.error("Create ticket error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+/* ================= LATEST TICKET ================= */
+exports.getLatestTicket = async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const ticket = await Ticket.findOne({ userId })
+      .sort({ createdAt: -1 });
+
+    res.json(ticket || null);
+  } catch (err) {
+    console.error("getLatestTicket error:", err);
+    res.status(500).json({ message: "Failed to fetch latest ticket" });
+  }
+};
+
+/* ================= CANCEL TICKET (SOCKET EMIT ADD) ================= */
+exports.cancelTicket = async (req, res) => {
+  try {
+    const ticket = await Ticket.findByIdAndUpdate(
+      req.params.id,
+      { status: "cancelled", cancelledAt: new Date() },
+      { new: true }
+    );
+
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    // ✅ SOCKET UPDATE
+    req.app.get("io")?.emit("ticketStatusUpdate", {
+      userId: ticket.userId.toString(),
+      ticketNumber: ticket.ticketNumber,
+      status: ticket.status,
+    });
+
+    res.json(ticket);
+  } catch (err) {
+    console.error("cancelTicket error:", err);
+    res.status(500).json({ message: "Failed to cancel ticket" });
   }
 };
 

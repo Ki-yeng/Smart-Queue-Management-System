@@ -1,6 +1,16 @@
 // src/components/ClearanceStatus.jsx
 import React, { useEffect, useState } from "react";
 
+/**
+ * =========================================
+ * 🟢 STEP 1: CLEARANCE STATUS PANEL
+ * -----------------------------------------
+ * Visibility ONLY.
+ * No blocking.
+ * No smart routing.
+ * =========================================
+ */
+
 const ClearanceStatus = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [clearance, setClearance] = useState({});
@@ -25,19 +35,32 @@ const ClearanceStatus = ({ user }) => {
           }
         );
 
-        if (!res.ok) throw new Error(`Failed to fetch clearance: ${res.status}`);
+        if (!res.ok)
+          throw new Error(`Failed to fetch clearance: ${res.status}`);
 
         const data = await res.json();
         setClearance(data);
       } catch (err) {
         console.error("Clearance fetch error:", err.message);
 
-        // Optional fallback for development
+        // 🔹 DEV FALLBACK (VISIBILITY ONLY)
         setClearance({
-          finance: { status: "Paid" },
-          academics: { status: "Registered" },
-          examinations: { status: "Eligible" },
-          library: { status: "Cleared" },
+          finance: {
+            status: "PENDING",
+            message: "Outstanding fee balance detected",
+          },
+          academics: {
+            status: "REGISTERED",
+            message: "All required units registered",
+          },
+          examinations: {
+            status: "BLOCKED",
+            message: "Exam access blocked due to pending fees",
+          },
+          library: {
+            status: "CLEARED",
+            message: "No pending library books",
+          },
         });
       } finally {
         setLoading(false);
@@ -51,33 +74,62 @@ const ClearanceStatus = ({ user }) => {
 
   return (
     <div className="bg-white p-4 rounded-xl shadow">
-      <h3 className="font-bold text-xl mb-3">Clearance Status</h3>
+      <h3 className="font-bold text-xl mb-3">
+        My Clearance Status
+      </h3>
 
       {loading ? (
         <p>Loading clearance status...</p>
       ) : Object.keys(clearance).length === 0 ? (
-        <p className="text-gray-500">No clearance data available</p>
+        <p className="text-gray-500">
+          No clearance data available
+        </p>
       ) : (
-        <ul className="space-y-1">
-          {Object.entries(clearance).map(([dept, statusObj]) => (
-            <li
-              key={dept}
-              className="flex justify-between border-b py-1"
-            >
-              <span className="capitalize">{dept}</span>
-              <span
-                className={`font-semibold ${
-                  ["cleared", "paid", "eligible"].includes(
-                    statusObj.status.toLowerCase()
-                  )
-                    ? "text-green-600"
-                    : "text-red-600"
-                }`}
+        <ul className="space-y-2">
+          {Object.entries(clearance).map(([dept, data]) => {
+            const okStatuses = ["CLEARED", "PAID", "REGISTERED"];
+            const isOk = okStatuses.includes(data.status);
+
+            return (
+              <li
+                key={dept}
+                className="border-b pb-2"
               >
-                {statusObj.status}
-              </span>
-            </li>
-          ))}
+                <div className="flex justify-between items-center">
+                  <span className="capitalize font-medium">
+                    {dept}
+                  </span>
+
+                  <span
+                    className={`font-semibold ${
+                      isOk
+                        ? "text-green-600"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {data.status}
+                  </span>
+                </div>
+
+                {/* 🔹 Explanation (ROOT CAUSE) */}
+                <p className="text-sm text-gray-500 mt-1">
+                  {data.message}
+                </p>
+
+                {/* 🔹 Placeholder Action */}
+                <button
+                  className="text-sm text-blue-600 mt-1 hover:underline"
+                  onClick={() =>
+                    console.log(
+                      `Resolve ${dept} clicked`
+                    )
+                  }
+                >
+                  Resolve Now
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

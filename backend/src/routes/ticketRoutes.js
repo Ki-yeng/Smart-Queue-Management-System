@@ -6,6 +6,9 @@ const ticketController = require("../controllers/ticketController");
 // Create a new ticket (student)
 router.post("/", ticketController.createTicket);
 
+//  ADD: Get latest ticket for a student
+router.get("/latest/:userId", ticketController.getLatestTicket);
+
 // Get all tickets (with optional filters)
 router.get("/", ticketController.getAllTickets);
 

@@ -83,3 +83,16 @@ export const staffAction = async (ticketId, action, payload = {}, token) => {
   // Simulate backend update, returns the same ticket for now
   return { ticket: { _id: ticketId, ...payload }, context: {} };
 };
+// Cancel a ticket (frontend wrapper)
+export const cancelTicket = async (id) => {
+  const token = localStorage.getItem("token");
+  try {
+    const res = await axios.put(`${API_URL}/cancel/${id}`, null, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    return res.data;
+  } catch (err) {
+    console.error("cancelTicket failed:", err);
+    return null;
+  }
+};

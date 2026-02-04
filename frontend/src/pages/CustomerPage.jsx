@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { createTicket, getNextTicket, getLatestTicket } from "../services/ticketService";
+import { createTicket, getNextTicket, getLatestTicket, getTicketById, cancelTicket } from "../services/ticketService";
 import { getCurrentUser } from "../services/authService";
 import ClearanceStatus from "../components/ClearanceStatus"; // ✅ ADD
 import io from "socket.io-client";
@@ -16,6 +16,14 @@ const SMART_ACTIONS = [
   { id: "fee_balance", title: "Resolve Fee Balance", dept: "Finance" },
   { id: "register_units", title: "Register Units", dept: "Academics" },
 ];
+
+// 🟢 STEP 3 — ADD: Smart Routing Map (Intent → Department)
+// Student chooses INTENT, system decides DEPARTMENT
+const SMART_ROUTING = {
+  exam_block: "Examinations",
+  fee_balance: "Finance",
+  register_units: "Academics",
+};
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -34,23 +42,21 @@ const CustomerPage = () => {
   const token = localStorage.getItem("token");
 
   /* ---------------- USER ---------------- */
-  /* ---------------- USER ---------------- */
-useEffect(() => {
-  (async () => {
-    try {
-      const me = await getCurrentUser();
-      if (me) setUser(me.user || me);
-      else {
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await getCurrentUser();
+        if (me) setUser(me.user || me);
+        else {
+          const stored = localStorage.getItem("user");
+          if (stored) setUser(JSON.parse(stored));
+        }
+      } catch {
         const stored = localStorage.getItem("user");
         if (stored) setUser(JSON.parse(stored));
       }
-    } catch {
-      const stored = localStorage.getItem("user");
-      if (stored) setUser(JSON.parse(stored));
-    }
-  })();
-}, []);
-
+    })();
+  }, []);
 
   /* ---------------- LATEST TICKET ---------------- */
   useEffect(() => {
@@ -70,10 +76,19 @@ useEffect(() => {
   /* ---------------- POLLING ---------------- */
   useEffect(() => {
     if (!ticket || !user) return;
+
     const interval = setInterval(async () => {
       const updated = await getLatestTicket(user._id, token);
-      if (updated) setTicketStatus(updated.status);
+      if (!updated || updated.status === "completed" || updated.status === "cancelled") {
+        setTicket(null);
+        setTicketStatus("");
+        clearInterval(interval);
+      } else {
+        setTicket(updated);
+        setTicketStatus(updated.status);
+      }
     }, 5000);
+
     return () => clearInterval(interval);
   }, [ticket, user]);
 
@@ -83,10 +98,13 @@ useEffect(() => {
     socketRef.current = io(API_URL, { auth: { token } });
 
     socketRef.current.on("ticketStatusUpdate", (data) => {
-      if (data.studentId === user._id) {
+      if (data.userId === user._id) {
         setTicketStatus(data.status);
         setNotifications((prev) => [
-          { message: `Ticket #${data.ticketNumber} status updated: ${data.status}`, time: new Date() },
+          {
+            message: `Ticket #${data.ticketNumber} status updated: ${data.status}`,
+            time: new Date(),
+          },
           ...prev,
         ]);
       }
@@ -107,41 +125,42 @@ useEffect(() => {
     return () => clearInterval(t);
   }, []);
 
-  /* ---------------- CLEARANCE (MOCK) ---------------- */
-  /*
-  useEffect(() => {
-    setClearance({
-      finance: { status: "Paid" },
-      academics: { status: "Registered" },
-      examinations: { status: "Eligible" },
-      library: { status: "Cleared" },
-    });
-  }, []);
-  */
-
+  
   /* ---------------- CREATE TICKET ---------------- */
   const handleGenerateTicket = async () => {
     if (!user) return alert("User not loaded");
 
     if (ticket && ticket.status !== "completed") {
-      return alert(`You already have an active ticket for ${ticket.serviceType}. You can cancel it to join a new queue.`);
+      return alert(
+        `You already have an active ticket for ${ticket.serviceType}. You can cancel it to join a new queue.`
+      );
     }
+
+    // 🟢 STEP 3 — Resolve department via Smart Routing
+    const resolvedDepartment = SMART_ROUTING[selectedAction.id];
 
     setLoadingTicket(true);
     try {
-      const res = await createTicket({
-        serviceType: selectedAction.dept,
-        studentName: user.name,
-        email: user.email,
-        userId: user._id,
-      });
+      const res = await createTicket(
+        {
+          serviceType: resolvedDepartment, // ✅ SYSTEM decides department
+          studentName: user.name,
+          email: user.email,
+          userId: user._id,
+        },
+        token
+      );
 
       let newTicket = res.ticket;
 
-      const next = await getNextTicket(selectedAction.dept, token);
+      const next = await getNextTicket(resolvedDepartment, token);
       if (next?.ticketNumber) {
         const ahead = Math.max(next.ticketNumber - newTicket.ticketNumber, 0);
-        newTicket = { ...newTicket, peopleAhead: ahead, estimatedWait: ahead * 5 };
+        newTicket = {
+          ...newTicket,
+          peopleAhead: ahead,
+          estimatedWait: ahead * 5,
+        };
       }
 
       setTicket(newTicket);
@@ -175,7 +194,6 @@ useEffect(() => {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
-
         {/* HEADER */}
         <div className="flex justify-between bg-white rounded-xl shadow p-4 mb-6">
           <div>
@@ -194,11 +212,8 @@ useEffect(() => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
           {/* LEFT */}
           <div className="space-y-6">
-
-            {/* ✅ ADD */}
             <ClearanceStatus user={user} />
 
             <div className="bg-white p-4 rounded-xl shadow">
@@ -207,7 +222,9 @@ useEffect(() => {
                 <button
                   key={a.id}
                   onClick={() => setSelectedAction(a)}
-                  className={`w-full text-left p-3 mb-2 border rounded hover:bg-gray-50 ${selectedAction.id === a.id ? "bg-gray-100" : ""}`}
+                  className={`w-full text-left p-3 mb-2 border rounded hover:bg-gray-50 ${
+                    selectedAction.id === a.id ? "bg-gray-100" : ""
+                  }`}
                 >
                   <div className="font-bold">{a.title}</div>
                 </button>
@@ -220,21 +237,29 @@ useEffect(() => {
             <div className="bg-white p-4 rounded-xl shadow mb-6">
               <h3 className="font-bold text-xl mb-3">Ticket</h3>
 
-              {ticket && ticket.status !== "completed" && (
-                <button
-                  onClick={handleCancelTicket}
-                  className="w-full bg-red-600 text-white py-2 rounded mb-3"
-                >
-                  Cancel Active Ticket
-                </button>
-              )}
+              {ticket && ticket.status !== "completed" && ticket.status !== "cancelled" && (
+  <button
+    onClick={async () => {
+      await cancelTicket(ticket._id);
+      setTicket(null);
+      setTicketStatus("");
+      alert("Ticket cancelled. You can now generate a new one.");
+    }}
+    className="w-full bg-red-600 text-white py-2 rounded mb-3"
+  >
+    Cancel Active Ticket
+  </button>
+)}
+
 
               <button
                 onClick={handleGenerateTicket}
                 disabled={loadingTicket}
                 className="w-full bg-[#182B5C] text-white py-3 rounded font-bold mb-4"
               >
-                {loadingTicket ? "Joining..." : `Join ${selectedAction.dept} Queue`}
+                {loadingTicket
+                  ? "Joining..."
+                  : `Join ${SMART_ROUTING[selectedAction.id]} Queue`}
               </button>
 
               {!ticket && <p className="text-gray-500">No active ticket</p>}
@@ -253,7 +278,9 @@ useEffect(() => {
               <h3 className="font-bold text-xl mb-2">Notifications</h3>
               {notifications.length === 0 && <p className="text-sm">No notifications</p>}
               {notifications.map((n, i) => (
-                <div key={i} className="text-sm">{n.message}</div>
+                <div key={i} className="text-sm">
+                  {n.message}
+                </div>
               ))}
               <div ref={notificationsEndRef} />
             </div>
@@ -264,7 +291,6 @@ useEffect(() => {
             <h3 className="font-bold text-xl mb-2">Announcements</h3>
             {announcements[announcementIndex]}
           </div>
-
         </div>
       </div>
     </div>
