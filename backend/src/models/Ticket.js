@@ -30,7 +30,7 @@ const ticketSchema = new mongoose.Schema(
     // Current status of the ticket
     status: {
       type: String,
-      enum: ["waiting", "serving", "completed", "cancelled"],
+      enum: ["waiting", "serving","on_hold", "completed", "cancelled","transferred"],
       default: "waiting",
     },
 
@@ -59,18 +59,43 @@ const ticketSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+// Staff who served the ticket
+servedBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  default: null,
+},
 
-    // Time when ticket was completed
+        // Time when ticket was completed
     completedAt: {
       type: Date,
       default: null,
     },
+// Time when ticket was transferred
+transferredAt: {
+  type: Date,
+  default: null,
+},
 
     // Time when ticket was cancelled
     cancelledAt: {
       type: Date,
       default: null,
     },
+// Parent ticket (used when this ticket was created via transfer)
+parentTicketId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Ticket",
+  default: null,
+},
+
+// Child tickets created from this ticket
+childTicketIds: [
+  {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Ticket",
+  },
+],
 
     // Transfer history to track which counters this ticket has been served at
     transferHistory: [

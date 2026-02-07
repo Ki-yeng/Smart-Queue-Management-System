@@ -25,6 +25,79 @@ const {
   emitTicketToServiceAndDashboard,
 } = require("../utils/socketEvents");
 
+/**
+ * Staff Smart Action: perform pre-defined actions on a ticket
+ * actions: "markVIP", "markAccessibility", "setPriority", "cancel", "complete"
+ */
+exports.staffAction = async (req, res) => {
+  try {
+    const { ticketId, action, payload } = req.body;
+    if (!ticketId || !action) {
+      return res.status(400).json({ message: "ticketId and action are required" });
+    }
+
+    const ticket = await Ticket.findById(ticketId).populate("userId").populate("counterId");
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    switch (action) {
+      case "markVIP":
+        ticket.priority = "vip";
+        ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
+        if (ticket.userId) await User.findByIdAndUpdate(ticket.userId, { isVIP: true });
+        await ticket.save();
+        break;
+
+      case "markAccessibility":
+        ticket.priority = "high";
+        ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
+        if (ticket.userId) await User.findByIdAndUpdate(ticket.userId, { hasAccessibilityNeeds: true });
+        await ticket.save();
+        break;
+
+      case "setPriority":
+        if (!payload?.priority) return res.status(400).json({ message: "priority required in payload" });
+        ticket.priority = payload.priority;
+        ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
+        await ticket.save();
+        break;
+
+      case "cancel":
+        if (ticket.status === "completed" || ticket.status === "cancelled") {
+          return res.status(400).json({ message: `Cannot cancel a ${ticket.status} ticket` });
+        }
+        ticket.status = "cancelled";
+        ticket.cancelledAt = new Date();
+        await ticket.save();
+        if (ticket.counterId && ticket.status === "serving") {
+          await Counter.findByIdAndUpdate(ticket.counterId, { status: "open", currentTicket: null });
+        }
+        break;
+
+      case "complete":
+        if (ticket.status !== "serving") return res.status(400).json({ message: "Only serving tickets can be completed" });
+        ticket.status = "completed";
+        ticket.completedAt = new Date();
+        await ticket.save();
+        if (ticket.counterId) await updateCounterMetricsOnCompletion(ticket.counterId, ticket);
+        break;
+
+      default:
+        return res.status(400).json({ message: "Invalid action" });
+    }
+
+    // Emit update to service staff + dashboard
+    const io = req.app?.get("io");
+    if (io) {
+      emitTicketToServiceAndDashboard(io, ticket, "ticketUpdatedByStaff", { action });
+      emitQueueUpdated(io, ticket.serviceType);
+    }
+
+    res.json({ message: "Staff action executed", ticket, action });
+  } catch (err) {
+    console.error("Staff action error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
 
 /**
  * Create a new ticket (student)
@@ -34,6 +107,19 @@ exports.createTicket = async (req, res) => {
     const { serviceType, studentName, email, userId } = req.body;
     if (!serviceType || !studentName || !email) {
       return res.status(400).json({ message: "serviceType, studentName and email are required" });
+    }
+
+    // ✅ Prevent duplicate active tickets for the same student
+    if (userId) {
+      const activeTicket = await Ticket.findOne({
+        userId,
+        status: { $in: ["waiting", "serving"] } // only active tickets
+      });
+      if (activeTicket) {
+        return res.status(400).json({
+          message: `You already have an active ticket (#${activeTicket.ticketNumber}) for ${activeTicket.serviceType}.`
+        });
+      }
     }
 
     const lastTicket = await Ticket.findOne({ serviceType }).sort({ ticketNumber: -1 });
@@ -93,6 +179,7 @@ exports.createTicket = async (req, res) => {
   }
 };
 
+
 /* ================= LATEST TICKET ================= */
 exports.getLatestTicket = async (req, res) => {
   const { userId } = req.params;
@@ -107,32 +194,6 @@ exports.getLatestTicket = async (req, res) => {
   }
 };
 
-/* ================= CANCEL TICKET (SOCKET EMIT ADD) ================= */
-exports.cancelTicket = async (req, res) => {
-  try {
-    const ticket = await Ticket.findByIdAndUpdate(
-      req.params.id,
-      { status: "cancelled", cancelledAt: new Date() },
-      { new: true }
-    );
-
-    if (!ticket) {
-      return res.status(404).json({ message: "Ticket not found" });
-    }
-
-    // ✅ SOCKET UPDATE
-    req.app.get("io")?.emit("ticketStatusUpdate", {
-      userId: ticket.userId.toString(),
-      ticketNumber: ticket.ticketNumber,
-      status: ticket.status,
-    });
-
-    res.json(ticket);
-  } catch (err) {
-    console.error("cancelTicket error:", err);
-    res.status(500).json({ message: "Failed to cancel ticket" });
-  }
-};
 
 /**
  * Get next ticket for a service type (sorted by priority)
@@ -140,12 +201,23 @@ exports.cancelTicket = async (req, res) => {
 exports.getNextTicket = async (req, res) => {
   try {
     const { serviceType } = req.params;
-    // Sort by priority score (descending) then by creation time (ascending)
-    const ticket = await Ticket.findOne({ serviceType, status: "waiting" })
+
+    // Get all blocked users
+    const blockedUsers = await User.find({ blocked: true }).select("_id");
+    const blockedIds = blockedUsers.map(u => u._id);
+
+    // Find the next ticket, excluding blocked users
+    const ticket = await Ticket.findOne({
+      serviceType,
+      status: "waiting",
+      userId: { $nin: blockedIds }, // exclude blocked users
+    })
       .sort({ priorityScore: -1, createdAt: 1 })
       .populate("userId", "name studentYear isVIP hasAccessibilityNeeds");
 
-    if (!ticket) return res.status(404).json({ message: "No waiting tickets" });
+    if (!ticket) {
+      return res.status(404).json({ message: "No waiting tickets" });
+    }
 
     res.json(ticket);
   } catch (err) {
@@ -153,6 +225,7 @@ exports.getNextTicket = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 /**
  * Get all tickets (for staff dashboard)
@@ -182,8 +255,16 @@ exports.getAllTickets = async (req, res) => {
     // Filter by priority if provided
     if (priority) {
       query.priority = priority;
-    }
+    
+   // ✅ Always exclude blocked students
+const blockedUsers = await User.find({ blocked: true }).select("_id");
+const blockedIds = blockedUsers.map(u => u._id);
+query.userId = query.userId
+  ? { ...query.userId, $nin: blockedIds }  // merge with existing userId filter if any
+  : { $nin: blockedIds };
 
+
+    }
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -236,6 +317,13 @@ exports.getWaitingTickets = async (req, res) => {
     // Filter by serviceType if provided
     if (serviceType) {
       query.serviceType = serviceType;
+
+      
+// ✅ Always exclude blocked students
+const blockedUsers = await User.find({ blocked: true }).select("_id");
+const blockedIds = blockedUsers.map(u => u._id);
+query.userId = { $nin: blockedIds };
+
     }
 
     const tickets = await Ticket.find(query)
@@ -263,7 +351,24 @@ exports.getTicketById = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
-    res.json(ticket);
+    res.json({
+  ticket,
+  context: {
+    finance: {
+      status: "",
+      note: "",
+    },
+    academics: {
+      status: "",
+      note: "",
+    },
+    examinations: {
+      status: "",
+      note: "",
+    },
+  },
+});
+
   } catch (err) {
     console.error("Get ticket by ID error:", err);
     res.status(500).json({ message: "Failed to load ticket" });
@@ -288,6 +393,7 @@ exports.serveTicket = async (req, res) => {
     const oldCounterStatus = counter.status;
     ticket.status = "serving";
     ticket.servedAt = new Date();
+    ticket.servedBy = req.user?.id || null;
     ticket.counterId = counter._id;
     counter.status = "busy";
     counter.currentTicket = ticket._id;
@@ -434,105 +540,81 @@ exports.cancelTicket = async (req, res) => {
 };
 
 /**
- * Transfer/Reassign ticket to a different counter
+ * Smart Transfer: close current ticket + create new ticket in target department
  */
 exports.transferTicket = async (req, res) => {
   try {
     const { id } = req.params;
-    const { newCounterId, reason } = req.body;
+    const { serviceType: targetService, reason } = req.body;
 
-    // Validate new counter ID
-    if (!newCounterId) {
-      return res.status(400).json({ message: "newCounterId is required" });
+    if (!targetService) {
+      return res.status(400).json({ message: "target serviceType is required" });
     }
 
-    const ticket = await Ticket.findById(id).populate("counterId", "counterName status");
-    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-
-    // Can only transfer serving tickets
-    if (ticket.status !== "serving") {
-      return res.status(400).json({ message: "Only serving tickets can be transferred" });
+    // 1️⃣ Fetch current ticket
+    const oldTicket = await Ticket.findById(id);
+    if (!oldTicket) {
+      return res.status(404).json({ message: "Ticket not found" });
     }
 
-    const oldCounterId = ticket.counterId;
-    if (!oldCounterId) {
-      return res.status(400).json({ message: "Ticket is not currently assigned to any counter" });
+    if (!["serving", "waiting"].includes(oldTicket.status)) {
+      return res.status(400).json({
+        message: `Cannot transfer ticket with status ${oldTicket.status}`,
+      });
     }
 
-    // Verify old counter exists and validate new counter
-    const oldCounter = await Counter.findById(oldCounterId);
-    const newCounter = await Counter.findById(newCounterId);
+    // 2️⃣ Mark old ticket as transferred
+    oldTicket.status = "transferred";
+    oldTicket.transferredAt = new Date();
+    await oldTicket.save();
 
-    if (!newCounter) {
-      return res.status(404).json({ message: "New counter not found" });
-    }
+    // 3️⃣ Generate next ticket number for target service
+    const lastTicket = await Ticket.findOne({ serviceType: targetService })
+      .sort({ ticketNumber: -1 });
 
-    if (newCounter.status === "closed") {
-      return res.status(400).json({ message: "Cannot transfer to a closed counter" });
-    }
+    const nextTicketNumber = lastTicket ? lastTicket.ticketNumber + 1 : 1;
 
-    // If new counter is already busy, queue the ticket by keeping it as serving but logging the transfer
-    if (newCounter.status === "busy" && newCounter.currentTicket) {
-      return res.status(400).json({ message: "New counter is currently busy. Please try another counter." });
-    }
-
-    // Record transfer in history
-    ticket.transferHistory.push({
-      fromCounterId: oldCounterId,
-      toCounterId: newCounterId,
-      transferredAt: new Date(),
-      reason: reason || "Reassigned by staff",
+    // 4️⃣ Create new ticket in target department
+    const newTicket = await Ticket.create({
+      ticketNumber: nextTicketNumber,
+      serviceType: targetService,
+      status: "waiting",
+      studentName: oldTicket.studentName,
+      email: oldTicket.email,
+      userId: oldTicket.userId || null,
+      priority: oldTicket.priority,
+      priorityScore: oldTicket.priorityScore,
+      parentTicketId: oldTicket._id,
     });
 
-    // Update ticket to new counter
-    ticket.counterId = newCounterId;
-    await ticket.save();
+    // 5️⃣ Link child ticket to parent
+    oldTicket.childTicketIds.push(newTicket._id);
+    await oldTicket.save();
 
-    // Update old counter: remove current ticket
-    let oldCounterUpdated = oldCounter;
-    if (oldCounter) {
-      oldCounter.status = "open";
-      oldCounter.currentTicket = null;
-      await oldCounter.save();
-    }
-
-    // Update new counter: set as current ticket
-    let newCounterUpdated = newCounter;
-    newCounter.status = "busy";
-    newCounter.currentTicket = ticket._id;
-    await newCounter.save();
-
-    // Fetch updated ticket with populated data
-    const updatedTicket = await Ticket.findById(id)
-      .populate("counterId", "counterName status")
-      .populate("transferHistory.fromCounterId", "counterName")
-      .populate("transferHistory.toCounterId", "counterName");
-
-    // Emit Socket.IO events
+    // 6️⃣ Socket events
     const io = req.app?.get("io");
     if (io) {
-      emitTicketTransferred(io, updatedTicket, oldCounterUpdated, newCounterUpdated);
-      emitCounterStatusUpdated(io, oldCounterUpdated);
-      emitCounterStatusChanged(io, oldCounterUpdated, "busy", "Ticket transferred");
-      emitCounterStatusUpdated(io, newCounterUpdated);
-      emitCounterStatusChanged(io, newCounterUpdated, "open", "Received transferred ticket");
-      emitQueueUpdated(io, updatedTicket.serviceType);
+      emitTicketTransferred(io, {
+        fromTicket: oldTicket,
+        toTicket: newTicket,
+        reason: reason || "Transferred by staff",
+      });
+
+      emitQueueUpdated(io, oldTicket.serviceType);
+      emitQueueUpdated(io, newTicket.serviceType);
     }
 
     res.json({
       message: "Ticket transferred successfully",
-      ticket: updatedTicket,
-      transfer: {
-        from: oldCounter?.counterName,
-        to: newCounter.counterName,
-        reason: reason || "Reassigned by staff",
-      },
+      oldTicket,
+      newTicket,
     });
   } catch (err) {
-    console.error("Transfer ticket error:", err);
+    console.error("Smart transfer error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
+
 
 /**
  * Update ticket priority

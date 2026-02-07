@@ -215,7 +215,7 @@ const CustomerPage = () => {
           {/* LEFT */}
           <div className="space-y-6">
             <ClearanceStatus user={user} />
-
+            
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Smart Actions</h3>
               {SMART_ACTIONS.map((a) => (
@@ -287,6 +287,38 @@ const CustomerPage = () => {
           </div>
 
           {/* RIGHT */}
+          {/* STUDENT SERVICES */}
+<div className="bg-white p-4 rounded-xl shadow">
+  <h3 className="font-bold text-xl mb-3">Student Services</h3>
+
+  <ul className="space-y-2 text-sm">
+    <li> Profile: {user?.name}</li>
+
+    <li>
+      Fee Balance:{" "}
+      <span className="font-semibold">
+        {clearance?.finance?.status || "Checking..."}
+      </span>
+    </li>
+
+    <li>
+       Exam Eligibility:{" "}
+      <span className="font-semibold">
+        {clearance?.examinations?.status || "Checking..."}
+      </span>
+    </li>
+
+    <li>
+      Clearance Status:{" "}
+      <span className="font-semibold">
+        {clearance?.overall || "Pending"}
+      </span>
+    </li>
+
+    <li> Notifications: {notifications.length}</li>
+  </ul>
+</div>
+
           <div className="bg-white p-4 rounded-xl shadow">
             <h3 className="font-bold text-xl mb-2">Announcements</h3>
             {announcements[announcementIndex]}

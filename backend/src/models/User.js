@@ -90,6 +90,11 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Blocked from getting tickets
+blocked: {
+  type: Boolean,
+  default: false,
+},
   },
 
   // Automatically adds createdAt and updatedAt fields
