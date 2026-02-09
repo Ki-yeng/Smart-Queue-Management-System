@@ -9,6 +9,30 @@ import {
 import { getCurrentUser } from "../services/authService";
 import axios from "axios";
 
+const STATUS_BADGE = {
+  waiting: {
+    label: "Waiting",
+    className: "bg-yellow-100 text-yellow-800",
+  },
+  serving: {
+    label: "Serving",
+    className: "bg-blue-100 text-blue-800",
+  },
+  completed: {
+    label: "Completed",
+    className: "bg-green-100 text-green-800",
+  },
+  transferred: {
+    label: "Transferred",
+    className: "bg-purple-100 text-purple-800",
+  },
+  cancelled: {
+    label: "Cancelled",
+    className: "bg-red-100 text-red-800",
+  },
+};
+
+
 const StaffDashboard = () => {
   const [queue, setQueue] = useState([]);
   const [currentTicket, setCurrentTicket] = useState(null);
@@ -175,20 +199,51 @@ const StaffDashboard = () => {
               <option>Accommodation</option>
             </select>
 
-            <div className="space-y-2 max-h-[48vh] overflow-auto">
-              {!queue.length && <div className="text-sm text-gray-500">No waiting tickets</div>}
-              {queue.map((t) => (
-                <div key={t._id} className={`p-2 rounded border flex justify-between items-center ${t.priority ? 'bg-yellow-50 border-yellow-200' : ''}`}>
-                  <div>
-                    <div className="font-semibold">#{t.ticketNumber} — {t.studentName || t.email}</div>
-                    <div className="text-xs text-gray-500">{t.serviceType}</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => { setCurrentTicket(t); fetchTicketDetails(t._id); }} className="text-sm text-blue-600">Open</button>
-                  </div>
-                </div>
-              ))}
-            </div>
+           <div className="space-y-2 max-h-[48vh] overflow-auto">
+  {!queue.length && (
+    <div className="text-sm text-gray-500">No waiting tickets</div>
+  )}
+
+  {queue.map((t) => {
+    const badge = STATUS_BADGE[t.status] || STATUS_BADGE.waiting;
+
+    return (
+      <div
+        key={t._id}
+        className={`p-2 rounded border flex justify-between items-center ${
+          t.priority ? "bg-yellow-50 border-yellow-200" : ""
+        }`}
+      >
+        <div>
+          <div className="font-semibold">
+            #{t.ticketNumber} — {t.studentName || t.email}
+          </div>
+
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs text-gray-500">{t.serviceType}</span>
+
+            {/* ✅ STATUS BADGE */}
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge.className}`}
+            >
+              {badge.label}
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setCurrentTicket(t);
+            fetchTicketDetails(t._id);
+          }}
+          className="text-sm text-blue-600"
+        >
+          Open
+        </button>
+      </div>
+    );
+  })}
+</div>
 
             <button disabled={actionLoading} onClick={callNext} className="mt-4 w-full bg-[#182B5C] text-white py-2 rounded">{actionLoading ? 'Calling...' : 'Call Next'}</button>
           </div>
@@ -199,7 +254,32 @@ const StaffDashboard = () => {
             {selectedTicketDetails?.ticket ? (
               <>
                 <div className="mb-2">
-                  <div className="font-semibold">#{selectedTicketDetails.ticket.ticketNumber} — {selectedTicketDetails.ticket.studentName || selectedTicketDetails.ticket.email}</div>
+                 {(() => {
+  const t = selectedTicketDetails.ticket;
+  const badge = STATUS_BADGE[t.status] || STATUS_BADGE.waiting;
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <div className="font-semibold">
+          #{t.ticketNumber} — {t.studentName || t.email}
+        </div>
+
+        {/* ✅ STATUS BADGE */}
+        <span
+          className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge.className}`}
+        >
+          {badge.label}
+        </span>
+      </div>
+
+      <div className="text-sm text-gray-500 mt-1">
+        Service: {t.serviceType}
+      </div>
+    </>
+  );
+})()}
+
                   <div className="text-sm text-gray-500">Service: {selectedTicketDetails.ticket.serviceType}</div>
                 </div>
 

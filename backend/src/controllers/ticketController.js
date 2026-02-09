@@ -376,59 +376,79 @@ exports.getTicketById = async (req, res) => {
 };
 
 /**
- * Serve ticket
+ * Serve ticket (staff takes ownership)
  */
 exports.serveTicket = async (req, res) => {
   try {
     const { id } = req.params;
     const { counterId } = req.body;
-    if (!counterId) return res.status(400).json({ message: "counterId required" });
 
+    if (!counterId) {
+      return res.status(400).json({ message: "counterId required" });
+    }
+
+    // 1️⃣ Fetch ticket
     const ticket = await Ticket.findById(id);
-    if (!ticket || ticket.status !== "waiting") return res.status(400).json({ message: "Invalid ticket" });
+    if (!ticket) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
 
+    if (ticket.status !== "waiting") {
+      return res.status(400).json({
+        message: `Cannot serve ticket with status ${ticket.status}`,
+      });
+    }
+
+    // 2️⃣ Fetch counter
     const counter = await Counter.findById(counterId);
-    if (!counter) return res.status(404).json({ message: "Counter not found" });
+    if (!counter) {
+      return res.status(404).json({ message: "Counter not found" });
+    }
+
+    if (counter.status !== "open") {
+      return res.status(400).json({
+        message: "Counter is currently busy",
+      });
+    }
 
     const oldCounterStatus = counter.status;
+
+    // 3️⃣ Assign ownership
     ticket.status = "serving";
     ticket.servedAt = new Date();
     ticket.servedBy = req.user?.id || null;
     ticket.counterId = counter._id;
+
     counter.status = "busy";
     counter.currentTicket = ticket._id;
 
     await ticket.save();
     await counter.save();
 
-    // Emit Socket.IO events
+    // 4️⃣ Emit socket events
     const io = req.app?.get("io");
     if (io) {
-      // Broadcast to all clients
       emitTicketServing(io, ticket, counter.counterName);
-      
-      // Counter staff only sees their counter updates
+
       emitCounterUpdateToStaff(io, counter, "counterStatusUpdated", {
         reason: "Started serving ticket",
         currentTicket: ticket._id,
       });
+
       emitCounterUpdateToStaff(io, counter, "counterStatusChanged", {
         oldStatus: oldCounterStatus,
         newStatus: counter.status,
       });
-      
-      // Counter staff sees their assigned ticket
+
       emitTicketToCounterStaff(io, ticket, counter._id, "ticketServing", {
         counterName: counter.counterName,
         message: `You are now serving ticket #${ticket.ticketNumber}`,
       });
-      
-      // Service staff + dashboard see the update
+
       emitTicketToServiceAndDashboard(io, ticket, "ticketServing", {
         counterName: counter.counterName,
       });
-      
-      // User sees their ticket is being served
+
       if (ticket.userId) {
         emitToUserOnly(io, ticket.userId, "ticketServing", {
           ticketNumber: ticket.ticketNumber,
@@ -437,7 +457,10 @@ exports.serveTicket = async (req, res) => {
       }
     }
 
-    res.json({ message: "Ticket is now being served", ticket });
+    res.json({
+      message: "Ticket is now being served",
+      ticket,
+    });
   } catch (err) {
     console.error("Serve ticket error:", err);
     res.status(500).json({ message: "Server error" });
@@ -567,6 +590,15 @@ exports.transferTicket = async (req, res) => {
     oldTicket.status = "transferred";
     oldTicket.transferredAt = new Date();
     await oldTicket.save();
+
+     // 🔓 Free counter if ticket was being served
+if (oldTicket.counterId) {
+  await Counter.findByIdAndUpdate(oldTicket.counterId, {
+    status: "open",
+    currentTicket: null,
+  });
+}
+
 
     // 3️⃣ Generate next ticket number for target service
     const lastTicket = await Ticket.findOne({ serviceType: targetService })

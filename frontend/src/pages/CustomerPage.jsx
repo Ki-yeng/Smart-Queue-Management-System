@@ -1,8 +1,32 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createTicket, getNextTicket, getLatestTicket, getTicketById, cancelTicket } from "../services/ticketService";
 import { getCurrentUser } from "../services/authService";
-import ClearanceStatus from "../components/ClearanceStatus"; // ✅ ADD
+import ClearanceStatus from "../components/ClearanceStatus"; // ✅ STEP 1 already done
 import io from "socket.io-client";
+
+// 🔹 Status → UI mapping (Step 8)
+const STATUS_CONFIG = {
+  waiting: {
+    label: "Waiting",
+    color: "#facc15", // yellow
+  },
+  serving: {
+    label: "Serving",
+    color: "#3b82f6", // blue
+  },
+  completed: {
+    label: "Completed",
+    color: "#22c55e", // green
+  },
+  transferred: {
+    label: "Transferred",
+    color: "#a855f7", // purple
+  },
+  cancelled: {
+    label: "Cancelled",
+    color: "#ef4444", // red
+  },
+};
 
 const announcements = [
   "📢 Admissions office closes at 4:30 PM today",
@@ -17,8 +41,7 @@ const SMART_ACTIONS = [
   { id: "register_units", title: "Register Units", dept: "Academics" },
 ];
 
-// 🟢 STEP 3 — ADD: Smart Routing Map (Intent → Department)
-// Student chooses INTENT, system decides DEPARTMENT
+// 🔧 STEP 2 & 3 — Smart Routing Map (Intent → Department)
 const SMART_ROUTING = {
   exam_block: "Examinations",
   fee_balance: "Finance",
@@ -125,7 +148,6 @@ const CustomerPage = () => {
     return () => clearInterval(t);
   }, []);
 
-  
   /* ---------------- CREATE TICKET ---------------- */
   const handleGenerateTicket = async () => {
     if (!user) return alert("User not loaded");
@@ -136,7 +158,7 @@ const CustomerPage = () => {
       );
     }
 
-    // 🟢 STEP 3 — Resolve department via Smart Routing
+    // 🔧 STEP 3 — Resolve department via Smart Routing
     const resolvedDepartment = SMART_ROUTING[selectedAction.id];
 
     setLoadingTicket(true);
@@ -215,7 +237,7 @@ const CustomerPage = () => {
           {/* LEFT */}
           <div className="space-y-6">
             <ClearanceStatus user={user} />
-            
+
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Smart Actions</h3>
               {SMART_ACTIONS.map((a) => (
@@ -238,19 +260,18 @@ const CustomerPage = () => {
               <h3 className="font-bold text-xl mb-3">Ticket</h3>
 
               {ticket && ticket.status !== "completed" && ticket.status !== "cancelled" && (
-  <button
-    onClick={async () => {
-      await cancelTicket(ticket._id);
-      setTicket(null);
-      setTicketStatus("");
-      alert("Ticket cancelled. You can now generate a new one.");
-    }}
-    className="w-full bg-red-600 text-white py-2 rounded mb-3"
-  >
-    Cancel Active Ticket
-  </button>
-)}
-
+                <button
+                  onClick={async () => {
+                    await cancelTicket(ticket._id);
+                    setTicket(null);
+                    setTicketStatus("");
+                    alert("Ticket cancelled. You can now generate a new one.");
+                  }}
+                  className="w-full bg-red-600 text-white py-2 rounded mb-3"
+                >
+                  Cancel Active Ticket
+                </button>
+              )}
 
               <button
                 onClick={handleGenerateTicket}
@@ -267,7 +288,17 @@ const CustomerPage = () => {
               {ticket && (
                 <div className="bg-[#F7F9FF] p-3 rounded">
                   <div className="font-bold">Ticket #{ticket.ticketNumber}</div>
-                  <div>Status: {ticketStatus}</div>
+                  <div>
+                    Status:{" "}
+                    <span
+                      style={{
+                        color: STATUS_CONFIG[ticketStatus]?.color || "#000",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {STATUS_CONFIG[ticketStatus]?.label || ticketStatus}
+                    </span>
+                  </div>
                   <div>People ahead: {ticket.peopleAhead ?? "—"}</div>
                   <div>Estimated wait: {ticket.estimatedWait ?? "—"} mins</div>
                 </div>
@@ -288,36 +319,36 @@ const CustomerPage = () => {
 
           {/* RIGHT */}
           {/* STUDENT SERVICES */}
-<div className="bg-white p-4 rounded-xl shadow">
-  <h3 className="font-bold text-xl mb-3">Student Services</h3>
+          <div className="bg-white p-4 rounded-xl shadow">
+            <h3 className="font-bold text-xl mb-3">Student Services</h3>
 
-  <ul className="space-y-2 text-sm">
-    <li> Profile: {user?.name}</li>
+            <ul className="space-y-2 text-sm">
+              <li> Profile: {user?.name}</li>
 
-    <li>
-      Fee Balance:{" "}
-      <span className="font-semibold">
-        {clearance?.finance?.status || "Checking..."}
-      </span>
-    </li>
+              <li>
+                Fee Balance:{" "}
+                <span className="font-semibold">
+                  {clearance?.finance?.status || "Checking..."}
+                </span>
+              </li>
 
-    <li>
-       Exam Eligibility:{" "}
-      <span className="font-semibold">
-        {clearance?.examinations?.status || "Checking..."}
-      </span>
-    </li>
+              <li>
+                Exam Eligibility:{" "}
+                <span className="font-semibold">
+                  {clearance?.examinations?.status || "Checking..."}
+                </span>
+              </li>
 
-    <li>
-      Clearance Status:{" "}
-      <span className="font-semibold">
-        {clearance?.overall || "Pending"}
-      </span>
-    </li>
+              <li>
+                Clearance Status:{" "}
+                <span className="font-semibold">
+                  {clearance?.overall || "Pending"}
+                </span>
+              </li>
 
-    <li> Notifications: {notifications.length}</li>
-  </ul>
-</div>
+              <li> Notifications: {notifications.length}</li>
+            </ul>
+          </div>
 
           <div className="bg-white p-4 rounded-xl shadow">
             <h3 className="font-bold text-xl mb-2">Announcements</h3>
