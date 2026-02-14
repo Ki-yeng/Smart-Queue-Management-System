@@ -15,6 +15,7 @@ const ClearanceStatus = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [clearance, setClearance] = useState({});
   const token = localStorage.getItem("token");
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
   useEffect(() => {
     if (!user) return;
@@ -25,15 +26,12 @@ const ClearanceStatus = ({ user }) => {
     const fetchClearance = async () => {
       setLoading(true);
       try {
-        const res = await fetch(
-          `http://localhost:5000/api/clearance/${userId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
+        const res = await fetch(`${API_URL}/api/clearance/${userId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
 
         if (!res.ok)
           throw new Error(`Failed to fetch clearance: ${res.status}`);

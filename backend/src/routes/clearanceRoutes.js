@@ -1,67 +1,66 @@
-// routes/clearanceRoutes.js
 const express = require("express");
 const router = express.Router();
+const Clearance = require("../models/Clearance");
+const { protect, allowRoles } = require("../middleware/authMiddleware");
 
-/**
- * =========================================
- * 🟢 STEP 1: CLEARANCE STATUS (ROOT CAUSE)
- * -----------------------------------------
- * This is a MOCK clearance source.
- * No blocking, no routing, no enforcement.
- * Visibility ONLY.
- * =========================================
- */
-
-// Minimal example - replace this with your DB model
-// For now, using an in-memory "database"
-const mockClearanceDB = {
-  "6948009e873645fc85d47db6": {
-    finance: {
-      status: "PENDING", // 🔹 standardized
-      message: "Outstanding fee balance detected",
-    },
-    academics: {
-      status: "REGISTERED",
-      message: "All required units registered",
-    },
-    examinations: {
-      status: "BLOCKED",
-      message: "Exam access blocked due to pending fees",
-    },
-    library: {
-      status: "CLEARED",
-      message: "No pending library books",
-    },
-  },
-
-  // Add other student IDs here as needed
+const buildContext = (doc) => {
+  const empty = {
+    finance: { status: "", note: "" },
+    academics: { status: "", note: "" },
+    examinations: { status: "", note: "" },
+    library: { status: "", note: "" },
+  };
+  if (!doc) return empty;
+  return {
+    finance: { status: doc.finance?.status || "", note: doc.finance?.note || "" },
+    academics: { status: doc.academics?.status || "", note: doc.academics?.note || "" },
+    examinations: { status: doc.examinations?.status || "", note: doc.examinations?.note || "" },
+    library: { status: doc.library?.status || "", note: doc.library?.note || "" },
+  };
 };
 
 // GET /api/clearance/:userId
-router.get("/:userId", async (req, res) => {
+router.get("/:userId", protect, async (req, res) => {
   const { userId } = req.params;
+  const isOwner = req.user?._id?.toString() === userId;
+  const isStaff = ["staff", "admin"].includes(req.user?.role);
+
+  if (!isOwner && !isStaff) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
 
   try {
-    // Replace this with actual DB query in future
-    const clearance = mockClearanceDB[userId];
-
-    if (!clearance) {
-      return res.status(404).json({
-        message: "Clearance not found",
-      });
-    }
-
-    /**
-     * IMPORTANT:
-     * This endpoint ONLY RETURNS STATUS
-     * No business logic, no blocking, no routing
-     */
-    res.json(clearance);
+    const doc = await Clearance.findOne({ userId }).lean();
+    res.json(buildContext(doc));
   } catch (err) {
     console.error("Clearance fetch error:", err.message);
-    res.status(500).json({
-      message: "Server error fetching clearance",
-    });
+    res.status(500).json({ message: "Server error fetching clearance" });
+  }
+});
+
+// PUT /api/clearance/:userId (staff/admin)
+router.put("/:userId", protect, allowRoles("staff", "admin"), async (req, res) => {
+  const { userId } = req.params;
+  const { finance, academics, examinations, library } = req.body || {};
+
+  try {
+    const doc = await Clearance.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          ...(finance ? { finance } : {}),
+          ...(academics ? { academics } : {}),
+          ...(examinations ? { examinations } : {}),
+          ...(library ? { library } : {}),
+        },
+      },
+      { new: true, upsert: true }
+    ).lean();
+
+    res.json(buildContext(doc));
+  } catch (err) {
+    console.error("Clearance update error:", err.message);
+    res.status(500).json({ message: "Server error updating clearance" });
   }
 });
 

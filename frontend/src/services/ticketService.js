@@ -22,7 +22,7 @@ export const createTicket = async ({ serviceType, studentName, email, userId }) 
 export const getLatestTicket = async (studentId, token) => {
   token = token || localStorage.getItem("token");
 
-  const res = await axios.get(`${API_URL}?studentId=${studentId}`, {
+  const res = await axios.get(`${API_URL}/latest/${studentId}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 
@@ -66,12 +66,38 @@ export const getWaitingTickets = async (token, serviceType = "") => {
   return res.data || [];
 };
 
+export const getAllTickets = async ({ token, serviceType, status, priority, userId } = {}) => {
+  const auth = token || localStorage.getItem("token");
+  const params = new URLSearchParams();
+  if (serviceType) params.set("serviceType", serviceType);
+  if (status) params.set("status", status);
+  if (priority) params.set("priority", priority);
+  if (userId) params.set("userId", userId);
+  params.set("format", "simple");
+  const res = await axios.get(`${API_URL}?${params.toString()}`, {
+    headers: auth ? { Authorization: `Bearer ${auth}` } : {},
+  });
+  if (Array.isArray(res.data)) return res.data;
+  if (Array.isArray(res.data?.tickets)) return res.data.tickets;
+  return res.data || [];
+};
+
+export const getUserTickets = async (userId, token) => {
+  token = token || localStorage.getItem("token");
+  const res = await axios.get(`${API_URL}?userId=${userId}&status=all&format=simple`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (Array.isArray(res.data)) return res.data;
+  if (Array.isArray(res.data?.tickets)) return res.data.tickets;
+  return res.data || [];
+};
+
 // Transfer a ticket to another department
 export const transferTicket = async (ticketId, newDept, token) => {
   token = token || localStorage.getItem("token");
   const res = await axios.put(
-    `${API_URL}/${ticketId}/transfer`,
-    { newDept },
+    `${API_URL}/transfer/${ticketId}`,
+    { serviceType: newDept },
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }
   );
   return res.data;
@@ -80,8 +106,17 @@ export const transferTicket = async (ticketId, newDept, token) => {
 // Placeholder staff action (does not break frontend)
 export const staffAction = async (ticketId, action, payload = {}, token) => {
   token = token || localStorage.getItem("token");
-  // Simulate backend update, returns the same ticket for now
-  return { ticket: { _id: ticketId, ...payload }, context: {} };
+  const res = await axios.post(
+    `${API_URL}/staff-action`,
+    { ticketId, action, payload },
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  return res.data;
+};
+
+export const getQueueOverview = async () => {
+  const res = await axios.get(`${API_URL}/queue-overview`);
+  return res.data;
 };
 // Cancel a ticket (frontend wrapper)
 export const cancelTicket = async (id) => {

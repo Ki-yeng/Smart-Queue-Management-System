@@ -15,6 +15,9 @@ router.get("/", ticketController.getAllTickets);
 // Get waiting tickets (optional serviceType filter)
 router.get("/waiting", ticketController.getWaitingTickets);
 
+// Central queue overview (aggregated)
+router.get("/queue-overview", ticketController.getQueueOverview);
+
 // Get next ticket for a service type
 router.get("/next/:serviceType", ticketController.getNextTicket);
 
@@ -32,6 +35,9 @@ router.put("/cancel/:id", ticketController.cancelTicket);
 
 // Transfer ticket to another counter
 router.put("/transfer/:id", ticketController.transferTicket);
+
+// Staff action (workflow updates)
+router.post("/staff-action", ticketController.staffAction);
 
 // Update ticket priority
 router.put("/priority/:id", ticketController.updateTicketPriority);

@@ -5,6 +5,7 @@ const User = require("../models/User");
 const { calculatePriorityScore, determinePriorityLevel, sortByPriority } = require("../utils/priorityHelper");
 const { findBestCounterForTicket } = require("../utils/loadBalancer");
 const { updateCounterMetricsOnCompletion } = require("../utils/metricsCalculator");
+const Clearance = require("../models/Clearance");
 const {
   emitTicketCreated,
   emitTicketServing,
@@ -25,6 +26,25 @@ const {
   emitTicketToServiceAndDashboard,
 } = require("../utils/socketEvents");
 
+const normalizeClearance = (doc) => ({
+  finance: {
+    status: doc?.finance?.status || "",
+    note: doc?.finance?.note || "",
+  },
+  academics: {
+    status: doc?.academics?.status || "",
+    note: doc?.academics?.note || "",
+  },
+  examinations: {
+    status: doc?.examinations?.status || "",
+    note: doc?.examinations?.note || "",
+  },
+  library: {
+    status: doc?.library?.status || "",
+    note: doc?.library?.note || "",
+  },
+});
+
 /**
  * Staff Smart Action: perform pre-defined actions on a ticket
  * actions: "markVIP", "markAccessibility", "setPriority", "cancel", "complete"
@@ -38,6 +58,9 @@ exports.staffAction = async (req, res) => {
 
     const ticket = await Ticket.findById(ticketId).populate("userId").populate("counterId");
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+    const userId = ticket.userId?._id?.toString() || ticket.userId?.toString();
+    let clearanceDoc = userId ? await Clearance.findOne({ userId }) : null;
+    let context = normalizeClearance(clearanceDoc);
 
     switch (action) {
       case "markVIP":
@@ -81,6 +104,47 @@ exports.staffAction = async (req, res) => {
         if (ticket.counterId) await updateCounterMetricsOnCompletion(ticket.counterId, ticket);
         break;
 
+      case "confirmPayment":
+        if (userId) {
+          const note = payload?.note || "Payment confirmed by staff";
+          clearanceDoc = await Clearance.findOneAndUpdate(
+            { userId },
+            {
+              $set: {
+                finance: { status: "PAID", note },
+                examinations: { status: "CLEARED", note: "Exam access unlocked after payment" },
+              },
+            },
+            { new: true, upsert: true }
+          );
+          context = normalizeClearance(clearanceDoc);
+        }
+        break;
+
+      case "approveRegistration":
+        if (userId) {
+          const note = payload?.note || "Units registration approved";
+          clearanceDoc = await Clearance.findOneAndUpdate(
+            { userId },
+            { $set: { academics: { status: "REGISTERED", note } } },
+            { new: true, upsert: true }
+          );
+          context = normalizeClearance(clearanceDoc);
+        }
+        break;
+
+      case "clearExamBlock":
+        if (userId) {
+          const note = payload?.note || "Exam block cleared by staff";
+          clearanceDoc = await Clearance.findOneAndUpdate(
+            { userId },
+            { $set: { examinations: { status: "CLEARED", note } } },
+            { new: true, upsert: true }
+          );
+          context = normalizeClearance(clearanceDoc);
+        }
+        break;
+
       default:
         return res.status(400).json({ message: "Invalid action" });
     }
@@ -92,7 +156,7 @@ exports.staffAction = async (req, res) => {
       emitQueueUpdated(io, ticket.serviceType);
     }
 
-    res.json({ message: "Staff action executed", ticket, action });
+    res.json({ message: "Staff action executed", ticket, action, context });
   } catch (err) {
     console.error("Staff action error:", err);
     res.status(500).json({ message: "Server error" });
@@ -235,7 +299,7 @@ exports.getNextTicket = async (req, res) => {
  */
 exports.getAllTickets = async (req, res) => {
   try {
-    const { serviceType, status, priority, page = 1, limit = 50, format = "full" } = req.query;
+    const { serviceType, status, priority, userId, page = 1, limit = 50, format = "full" } = req.query;
     
     // Build filter query
     let query = {};
@@ -246,25 +310,34 @@ exports.getAllTickets = async (req, res) => {
     }
 
     // Filter by status if provided (default is waiting if not specified)
-    if (status) {
+    if (status && status !== "all") {
       query.status = status;
-    } else {
+    } else if (!status) {
       query.status = { $in: ["waiting", "serving"] }; // Default to waiting and serving
+    }
+
+    // Filter by user if provided
+    if (userId) {
+      query.userId = userId;
     }
 
     // Filter by priority if provided
     if (priority) {
       query.priority = priority;
-    
-   // ✅ Always exclude blocked students
-const blockedUsers = await User.find({ blocked: true }).select("_id");
-const blockedIds = blockedUsers.map(u => u._id);
-query.userId = query.userId
-  ? { ...query.userId, $nin: blockedIds }  // merge with existing userId filter if any
-  : { $nin: blockedIds };
-
-
     }
+
+    // Always exclude blocked students
+    const blockedUsers = await User.find({ blocked: true }).select("_id");
+    const blockedIds = blockedUsers.map((u) => u._id.toString());
+    if (query.userId) {
+      if (blockedIds.includes(query.userId.toString())) {
+        return res.json(format === "simple" ? [] : { message: "Tickets retrieved successfully", tickets: [], pagination: { total: 0, page: parseInt(page), limit: parseInt(limit), pages: 0 }, filters: { serviceType: serviceType || "all", status: status || "waiting,serving", priority: priority || "all" } });
+      }
+      query.userId = query.userId;
+    } else {
+      query.userId = { $nin: blockedIds };
+    }
+
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -281,7 +354,7 @@ query.userId = query.userId
 
     // Backward compatible: return simple array if no filters and format=simple
     if (!serviceType && !status && !priority && format === "simple") {
-      return res.json(tickets);
+      return res.json(sortByPriority(tickets));
     }
 
     // Full response with pagination and filters
@@ -317,23 +390,111 @@ exports.getWaitingTickets = async (req, res) => {
     // Filter by serviceType if provided
     if (serviceType) {
       query.serviceType = serviceType;
-
-      
-// ✅ Always exclude blocked students
-const blockedUsers = await User.find({ blocked: true }).select("_id");
-const blockedIds = blockedUsers.map(u => u._id);
-query.userId = { $nin: blockedIds };
-
     }
+
+    const blockedUsers = await User.find({ blocked: true }).select("_id");
+    const blockedIds = blockedUsers.map((u) => u._id);
+    query.userId = { $nin: blockedIds };
 
     const tickets = await Ticket.find(query)
       .sort({ priorityScore: -1, createdAt: 1 })
       .populate("userId", "name email studentYear isVIP hasAccessibilityNeeds");
 
-    res.json(tickets);
+    res.json(sortByPriority(tickets));
   } catch (err) {
     console.error("Get waiting tickets error:", err);
     res.status(500).json({ message: "Failed to load waiting tickets" });
+  }
+};
+
+
+/**
+ * Queue overview (centralized, per service)
+ */
+exports.getQueueOverview = async (req, res) => {
+  try {
+    const blockedUsers = await User.find({ blocked: true }).select("_id");
+    const blockedIds = blockedUsers.map((u) => u._id);
+
+    const waitingByService = await Ticket.aggregate([
+      {
+        $match: {
+          status: "waiting",
+          $or: [
+            { userId: { $exists: false } },
+            { userId: null },
+            { userId: { $nin: blockedIds } },
+          ],
+        },
+      },
+      {
+        $group: {
+          _id: "$serviceType",
+          waiting: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const counterStats = await Counter.aggregate([
+      {
+        $group: {
+          _id: "$serviceType",
+          total: { $sum: 1 },
+          open: { $sum: { $cond: [{ $eq: ["$status", "open"] }, 1, 0] } },
+          busy: { $sum: { $cond: [{ $eq: ["$status", "busy"] }, 1, 0] } },
+          closed: { $sum: { $cond: [{ $eq: ["$status", "closed"] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    const waitingMap = waitingByService.reduce((acc, item) => {
+      acc[item._id] = item.waiting;
+      return acc;
+    }, {});
+
+    const counterMap = counterStats.reduce((acc, item) => {
+      acc[item._id] = item;
+      return acc;
+    }, {});
+
+    const serviceTypes = [
+      "Admissions",
+      "Finance",
+      "Examinations",
+      "Library",
+      "Accommodation",
+      "Student Records",
+      "ICT Support",
+      "Counselling",
+      "General Enquiries",
+    ];
+
+    const services = serviceTypes.map((serviceType) => {
+      const waiting = waitingMap[serviceType] || 0;
+      const counters = counterMap[serviceType] || { total: 0, open: 0, busy: 0, closed: 0 };
+      const estimatedWaitMins = Math.max(0, waiting) * 5;
+      return {
+        serviceType,
+        waiting,
+        estimatedWaitMins,
+        counters: {
+          total: counters.total || 0,
+          open: counters.open || 0,
+          busy: counters.busy || 0,
+          closed: counters.closed || 0,
+        },
+        status: (counters.open || 0) > 0 ? "open" : "closed",
+      };
+    });
+
+    res.json({
+      message: "Queue overview",
+      services,
+      timestamp: new Date(),
+    });
+  } catch (err) {
+    console.error("Queue overview error:", err);
+    res.status(500).json({ message: "Failed to load queue overview" });
   }
 };
 
@@ -351,23 +512,13 @@ exports.getTicketById = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
+    const userId = ticket.userId?._id?.toString() || ticket.userId?.toString();
+    const clearanceDoc = userId ? await Clearance.findOne({ userId }) : null;
+    const context = normalizeClearance(clearanceDoc);
     res.json({
-  ticket,
-  context: {
-    finance: {
-      status: "",
-      note: "",
-    },
-    academics: {
-      status: "",
-      note: "",
-    },
-    examinations: {
-      status: "",
-      note: "",
-    },
-  },
-});
+      ticket,
+      context,
+    });
 
   } catch (err) {
     console.error("Get ticket by ID error:", err);
@@ -383,11 +534,7 @@ exports.serveTicket = async (req, res) => {
     const { id } = req.params;
     const { counterId } = req.body;
 
-    if (!counterId) {
-      return res.status(400).json({ message: "counterId required" });
-    }
-
-    // 1️⃣ Fetch ticket
+    // 1) Fetch ticket
     const ticket = await Ticket.findById(id);
     if (!ticket) {
       return res.status(404).json({ message: "Ticket not found" });
@@ -399,60 +546,71 @@ exports.serveTicket = async (req, res) => {
       });
     }
 
-    // 2️⃣ Fetch counter
-    const counter = await Counter.findById(counterId);
-    if (!counter) {
-      return res.status(404).json({ message: "Counter not found" });
+    // 2) Fetch counter if provided
+    let counter = null;
+    let oldCounterStatus = null;
+    if (counterId) {
+      counter = await Counter.findById(counterId);
+      if (!counter) {
+        return res.status(404).json({ message: "Counter not found" });
+      }
+
+      if (counter.status !== "open") {
+        return res.status(400).json({
+          message: "Counter is currently busy",
+        });
+      }
+
+      oldCounterStatus = counter.status;
     }
 
-    if (counter.status !== "open") {
-      return res.status(400).json({
-        message: "Counter is currently busy",
-      });
-    }
-
-    const oldCounterStatus = counter.status;
-
-    // 3️⃣ Assign ownership
+    // 3) Assign ownership
     ticket.status = "serving";
     ticket.servedAt = new Date();
     ticket.servedBy = req.user?.id || null;
-    ticket.counterId = counter._id;
-
-    counter.status = "busy";
-    counter.currentTicket = ticket._id;
+    if (counter) {
+      ticket.counterId = counter._id;
+      counter.status = "busy";
+      counter.currentTicket = ticket._id;
+    }
 
     await ticket.save();
-    await counter.save();
+    if (counter) await counter.save();
 
-    // 4️⃣ Emit socket events
+    // 4) Emit socket events
     const io = req.app?.get("io");
     if (io) {
-      emitTicketServing(io, ticket, counter.counterName);
+      emitTicketServing(io, ticket, counter?.counterName || "Unassigned");
 
-      emitCounterUpdateToStaff(io, counter, "counterStatusUpdated", {
-        reason: "Started serving ticket",
-        currentTicket: ticket._id,
-      });
+      if (counter) {
+        emitCounterUpdateToStaff(io, counter, "counterStatusUpdated", {
+          reason: "Started serving ticket",
+          currentTicket: ticket._id,
+        });
 
-      emitCounterUpdateToStaff(io, counter, "counterStatusChanged", {
-        oldStatus: oldCounterStatus,
-        newStatus: counter.status,
-      });
+        emitCounterUpdateToStaff(io, counter, "counterStatusChanged", {
+          oldStatus: oldCounterStatus,
+          newStatus: counter.status,
+        });
 
-      emitTicketToCounterStaff(io, ticket, counter._id, "ticketServing", {
-        counterName: counter.counterName,
-        message: `You are now serving ticket #${ticket.ticketNumber}`,
-      });
+        emitTicketToCounterStaff(io, ticket, counter._id, "ticketServing", {
+          counterName: counter.counterName,
+          message: `You are now serving ticket #${ticket.ticketNumber}`,
+        });
 
-      emitTicketToServiceAndDashboard(io, ticket, "ticketServing", {
-        counterName: counter.counterName,
-      });
+        emitTicketToServiceAndDashboard(io, ticket, "ticketServing", {
+          counterName: counter.counterName,
+        });
+      } else {
+        emitTicketToServiceAndDashboard(io, ticket, "ticketServing", {
+          counterName: "Unassigned",
+        });
+      }
 
       if (ticket.userId) {
         emitToUserOnly(io, ticket.userId, "ticketServing", {
           ticketNumber: ticket.ticketNumber,
-          message: `Your ticket is being served at counter ${counter.counterName}`,
+          message: "Your ticket is now being served",
         });
       }
     }

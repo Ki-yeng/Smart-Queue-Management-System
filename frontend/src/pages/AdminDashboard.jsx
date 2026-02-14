@@ -2,20 +2,12 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { socket } from "../socket";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const AdminDashboard = () => {
-  // Core data
-  const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [auditLogs, setAuditLogs] = useState([]);
-
-  // System KPIs & health
-  const [kpis, setKpis] = useState({ activeCounters: 0, avgWait: 0, totalWaiting: 0 });
-  const [integrations, setIntegrations] = useState({ finance: true, academics: true, exams: true });
-
-  // Rules engine (stored in-memory / localStorage)
+  const [dashboard, setDashboard] = useState(null);
+  const [queueOverview, setQueueOverview] = useState([]);
+  const [integrations, setIntegrations] = useState({});
   const [routingRules, setRoutingRules] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("routingRules")) || {
@@ -23,86 +15,84 @@ const AdminDashboard = () => {
         finance_cleared: { action: "unlock_exams", enabled: true },
         final_year_priority: { action: "priority", enabled: true },
       };
-    } catch (e) {
+    } catch {
       return {};
     }
   });
-
-  // Automation / workflow steps
   const [workflow, setWorkflow] = useState([
     { id: "finance", name: "Finance", enabled: true },
     { id: "academics", name: "Academics", enabled: true },
     { id: "exams", name: "Exams", enabled: true },
   ]);
-
-  // Capacity planning
   const [extraCounters, setExtraCounters] = useState(0);
+  const [auditLogs, setAuditLogs] = useState([]);
 
-  const fetchTickets = async () => {
+  const token = localStorage.getItem("token");
+
+  const logAction = (action) => {
+    setAuditLogs((prev) => [{ action, time: new Date().toLocaleString() }, ...prev].slice(0, 30));
+  };
+
+  const fetchDashboard = async () => {
     try {
-      setLoading(true);
-      setError("");
-
-      const res = await axios.get(`${API_URL}/tickets`).catch(() => ({ data: [] }));
-      const data = Array.isArray(res.data) ? res.data : res.data.tickets || [];
-
-      setTickets(data);
-      // quick kpi derivation
-      const waiting = data.filter((t) => t.status !== "completed").length;
-      const avgWait = Math.round((waiting * 5) / Math.max(1, data.length));
-      setKpis({ activeCounters: 6 + extraCounters, avgWait, totalWaiting: waiting });
+      const res = await axios.get(`${API_URL}/api/dashboard`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setDashboard(res.data?.data || null);
     } catch (err) {
-      setError("Failed to load system data");
-    } finally {
-      setLoading(false);
+      console.warn("Dashboard fetch failed", err);
+    }
+  };
+
+  const fetchQueueOverview = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/tickets/queue-overview`);
+      setQueueOverview(res.data?.services || []);
+    } catch (err) {
+      console.warn("Queue overview failed", err);
+    }
+  };
+
+  const fetchIntegrations = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/integrations/status`);
+      setIntegrations(res.data?.integrations || res.data || {});
+    } catch (err) {
+      console.warn("Integration status failed", err);
     }
   };
 
   useEffect(() => {
-    fetchTickets();
-  }, [extraCounters]);
+    fetchDashboard();
+    fetchQueueOverview();
+    fetchIntegrations();
 
-  useEffect(() => {
     socket.connect();
 
     socket.on("ticketCreated", (ticket) => {
-      setTickets((prev) => [...prev, ticket]);
       logAction(`Ticket created: ${ticket.ticketNumber}`);
+      fetchDashboard();
+      fetchQueueOverview();
     });
 
     socket.on("ticketUpdated", (ticket) => {
-      setTickets((prev) => prev.map((t) => (t._id === ticket._id ? ticket : t)));
       logAction(`Ticket updated: ${ticket.ticketNumber}`);
+      fetchDashboard();
+      fetchQueueOverview();
     });
 
-    // integration heartbeat (simulated)
-    const iv = setInterval(() => {
-      setIntegrations((s) => ({ ...s }));
-    }, 10000);
+    const interval = setInterval(() => {
+      fetchDashboard();
+      fetchQueueOverview();
+      fetchIntegrations();
+    }, 15000);
 
     return () => {
-      clearInterval(iv);
+      clearInterval(interval);
       socket.disconnect();
     };
   }, []);
 
-  const logAction = (action) => {
-    setAuditLogs((prev) => [{ action, time: new Date().toLocaleString() }, ...prev].slice(0, 50));
-  };
-
-  /* ================= Derived analytics ================= */
-  const ticketsPerService = tickets.reduce((acc, t) => {
-    const key = t.service || t.serviceType || "Unknown";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-
-  const waiting = tickets.filter((t) => t.status !== "completed").length;
-  const completed = tickets.filter((t) => t.status === "completed").length;
-
-  const bottlenecks = Object.entries(ticketsPerService).map(([k, v]) => ({ service: k, count: v }));
-
-  /* ================= Rules + Workflow handlers ================= */
   const toggleRule = (key) => {
     const next = { ...routingRules, [key]: { ...routingRules[key], enabled: !routingRules[key].enabled } };
     setRoutingRules(next);
@@ -117,126 +107,162 @@ const AdminDashboard = () => {
   };
 
   const simulateAddCounters = (n) => {
-    setExtraCounters((c) => c + n);
-    logAction(`Added ${n} temporary counters`);
+    setExtraCounters((c) => Math.max(0, c + n));
+    logAction(`${n > 0 ? "Added" : "Removed"} ${Math.abs(n)} temporary counters`);
   };
 
-  /* ================= RENDER ================= */
+  const summary = dashboard?.summary || {};
+  const serviceTypes = dashboard?.serviceTypes || [];
+
   return (
-    <div style={{ minHeight: "100vh", padding: 20, background: "#F3F4F6" }}>
-      <h1 style={{ color: "#0f172a" }}>Admin Dashboard</h1>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
 
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: "red" }}>{error}</p>}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+          <KpiCard label="Total Tickets Today" value={summary.totalTicketsToday || 0} />
+          <KpiCard label="Total Queue Length" value={summary.totalQueueLength || 0} />
+          <KpiCard label="Avg Wait (mins)" value={summary.avgWaitingTime || 0} />
+          <KpiCard label="Avg Service (mins)" value={summary.avgServiceTime || 0} />
+        </div>
 
-      {/* KPI Row */}
-      <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
-        <div style={smallCard}>
-          <div style={{ fontSize: 12, color: "#374151" }}>Active Counters</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{kpis.activeCounters}</div>
-        </div>
-        <div style={smallCard}>
-          <div style={{ fontSize: 12, color: "#374151" }}>Total Waiting</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{kpis.totalWaiting}</div>
-        </div>
-        <div style={smallCard}>
-          <div style={{ fontSize: 12, color: "#374151" }}>Avg Wait (mins)</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{kpis.avgWait}</div>
-        </div>
-        <div style={smallCard}>
-          <div style={{ fontSize: 12, color: "#374151" }}>Integrations Healthy</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{Object.values(integrations).every(Boolean) ? 'Yes' : 'Issues'}</div>
-        </div>
-      </div>
-
-      {/* Central Queue Monitor */}
-      <div style={card}>
-        <h3>Centralized Queue Monitor</h3>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {bottlenecks.map((b) => (
-            <div key={b.service} style={{ minWidth: 160, padding: 8, borderRadius: 8, border: '1px solid #e5e7eb' }}>
-              <div style={{ fontWeight: 700 }}>{b.service}</div>
-              <div style={{ fontSize: 12, color: '#6b7280' }}>{b.count} waiting</div>
-              <div style={{ marginTop: 8 }}>
-                <div style={{ height: 8, background: '#e5e7eb', borderRadius: 4 }}>
-                  <div style={{ width: `${Math.min(100, b.count * 8)}%`, height: '100%', background: b.count > 20 ? '#dc2626' : b.count > 8 ? '#f59e0b' : '#10b981', borderRadius: 4 }} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+          <div className="bg-white rounded-xl shadow p-4 lg:col-span-2">
+            <h3 className="font-bold mb-3">Centralized Queue Monitor</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {queueOverview.length === 0 && <div className="text-sm text-gray-500">No queue data</div>}
+              {queueOverview.map((q) => (
+                <div key={q.serviceType} className="border rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold">{q.serviceType}</div>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                        q.waiting > 20
+                          ? "bg-red-100 text-red-700"
+                          : q.waiting > 8
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-green-100 text-green-700"
+                      }`}
+                    >
+                      {q.waiting > 20 ? "High" : q.waiting > 8 ? "Medium" : "Low"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {q.waiting} waiting ? {q.estimatedWaitMins} mins
+                  </div>
+                  <div className="text-xs text-gray-500">Counters open: {q.counters?.open || 0}</div>
                 </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Integration Manager + Rules */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div style={card}>
-          <h3>API Integration Manager</h3>
-          <div style={{ display:'flex', gap:8 }}>
-            <IntegrationRow name="Finance ERP" ok={integrations.finance} />
-            <IntegrationRow name="Academic Records" ok={integrations.academics} />
-            <IntegrationRow name="Exams Scheduler" ok={integrations.exams} />
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">API Integration Manager</h3>
+            <div className="space-y-2">
+              {Object.keys(integrations).length === 0 && <div className="text-sm text-gray-500">No integration data</div>}
+              {Object.entries(integrations).map(([key, info]) => (
+                <div key={key} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    <div className="font-semibold capitalize">{key}</div>
+                    <div className="text-xs text-gray-500">{info.status || info.message || "Unknown"}</div>
+                  </div>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                      info.connected || info.status === "connected" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {info.connected || info.status === "connected" ? "Connected" : "Error"}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div style={card}>
-          <h3>Smart Routing Rules</h3>
-          {Object.keys(routingRules).map((k) => (
-            <div key={k} style={{ display:'flex', justifyContent:'space-between', padding:6 }}>
-              <div>
-                <div style={{ fontWeight:700 }}>{k}</div>
-                <div style={{ fontSize:12, color:'#6b7280' }}>Action: {routingRules[k].action}</div>
-              </div>
-              <button onClick={() => toggleRule(k)} className="btn">{routingRules[k].enabled ? 'Disable' : 'Enable'}</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Workflow Designer */}
-      <div style={card}>
-        <h3>Workflow Automation Designer</h3>
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          {workflow.map((s, i) => (
-            <div key={s.id} style={{ padding:8, borderRadius:6, background: s.enabled ? '#eef2ff' : '#fff', border:'1px solid #e5e7eb' }}>
-              <div style={{ fontWeight:700 }}>{s.name}</div>
-              <div style={{ marginTop:6 }}>
-                <button onClick={() => toggleWorkflowStep(s.id)} className="btn">{s.enabled ? 'On' : 'Off'}</button>
-                {i < workflow.length - 1 && <span style={{ marginLeft:8, marginRight:8 }}>→</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Analytics & Capacity */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 320px', gap:12 }}>
-        <div style={card}>
-          <h3>Analytics & Bottleneck Detection</h3>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-            <div>
-              <div style={{ fontSize:12, color:'#6b7280' }}>Peak service</div>
-              <div style={{ fontWeight:700 }}>{bottlenecks.sort((a,b)=>b.count-a.count)[0]?.service || '—'}</div>
-            </div>
-            <div>
-              <div style={{ fontSize:12, color:'#6b7280' }}>Peak volume</div>
-              <div style={{ fontWeight:700 }}>{Math.max(...Object.values(ticketsPerService),0)}</div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">Department Performance</h3>
+            <div className="space-y-2">
+              {serviceTypes.length === 0 && <div className="text-sm text-gray-500">No service data</div>}
+              {serviceTypes.map((s) => (
+                <div key={s._id} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    <div className="font-semibold">{s._id}</div>
+                    <div className="text-xs text-gray-500">Waiting: {s.waiting} ? Serving: {s.serving}</div>
+                  </div>
+                  <div className="text-xs text-gray-600">Completed: {s.completed}</div>
+                </div>
+              ))}
             </div>
           </div>
-          <div style={{ marginTop:12 }}>
-            <h4>Recent audit</h4>
-            {auditLogs.slice(0,6).map((l,i)=> <div key={i} style={{ fontSize:12, color:'#374151' }}>[{l.time}] {l.action}</div>)}
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">Smart Routing Rules Engine</h3>
+            <div className="space-y-2">
+              {Object.keys(routingRules).map((k) => (
+                <div key={k} className="flex items-center justify-between border rounded p-2">
+                  <div>
+                    <div className="font-semibold">{k.replace(/_/g, " ")}</div>
+                    <div className="text-xs text-gray-500">Action: {routingRules[k].action}</div>
+                  </div>
+                  <button onClick={() => toggleRule(k)} className="text-sm text-blue-600">
+                    {routingRules[k].enabled ? "Disable" : "Enable"}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div style={card}>
-          <h3>Capacity Planning</h3>
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <button onClick={() => simulateAddCounters(1)} className="btn">Add Counter</button>
-            <button onClick={() => simulateAddCounters(-1)} className="btn">Remove Counter</button>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">Workflow Automation Designer</h3>
+            <div className="flex flex-wrap gap-3">
+              {workflow.map((step, i) => (
+                <div key={step.id} className="border rounded p-3">
+                  <div className="font-semibold">{step.name}</div>
+                  <button onClick={() => toggleWorkflowStep(step.id)} className="text-sm text-blue-600 mt-2">
+                    {step.enabled ? "Enabled" : "Disabled"}
+                  </button>
+                  {i < workflow.length - 1 && <div className="text-xs text-gray-400 mt-2">Next ?</div>}
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ marginTop:12 }}>
-            <div style={{ fontSize:12, color:'#6b7280' }}>Simulation: active counters</div>
-            <div style={{ fontWeight:700 }}>{kpis.activeCounters}</div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">Analytics & Bottleneck Detection</h3>
+            <div className="text-sm text-gray-600">Peak Hour: {dashboard?.peakHour || "-"}</div>
+            <div className="mt-3">
+              <h4 className="font-semibold">Recent Audit</h4>
+              {auditLogs.length === 0 && <div className="text-sm text-gray-500">No recent activity</div>}
+              {auditLogs.map((l, i) => (
+                <div key={i} className="text-xs text-gray-600">[{l.time}] {l.action}</div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">Capacity Planning Tools</h3>
+            <div className="flex items-center gap-2">
+              <button onClick={() => simulateAddCounters(1)} className="text-sm border rounded px-3 py-1">Add Counter</button>
+              <button onClick={() => simulateAddCounters(-1)} className="text-sm border rounded px-3 py-1">Remove Counter</button>
+            </div>
+            <div className="text-sm text-gray-600 mt-2">
+              Simulation: active counters {(dashboard?.counters?.active || 0) + extraCounters}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-bold mb-3">Reports & Forecasts</h3>
+            <div className="text-sm text-gray-600">
+              Completion Rate: {dashboard?.tickets?.completionRate || 0}%
+            </div>
+            <div className="text-sm text-gray-600 mt-1">
+              Waiting Tickets: {dashboard?.tickets?.waiting || 0}
+            </div>
           </div>
         </div>
       </div>
@@ -244,25 +270,11 @@ const AdminDashboard = () => {
   );
 };
 
-/* small helper components */
-const IntegrationRow = ({ name, ok }) => (
-  <div style={{ minWidth: 180, padding:8, borderRadius:8, border: '1px solid #e5e7eb' }}>
-    <div style={{ fontWeight:700 }}>{name}</div>
-    <div style={{ fontSize:12, color: ok ? '#059669' : '#dc2626' }}>{ok ? 'Connected' : 'Error'}</div>
+const KpiCard = ({ label, value }) => (
+  <div className="bg-white rounded-xl shadow p-4">
+    <div className="text-xs text-gray-500">{label}</div>
+    <div className="text-2xl font-bold">{value}</div>
   </div>
 );
-
-/* ================= STYLES ================= */
-
-const card = {
-  background: "white",
-  padding: 16,
-  borderRadius: 8,
-  marginTop: 16,
-};
-
-const smallCard = {
-  background: 'white', padding: 12, borderRadius: 8, minWidth: 160, boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-};
 
 export default AdminDashboard;

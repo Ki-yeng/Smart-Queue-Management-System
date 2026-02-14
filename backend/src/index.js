@@ -7,6 +7,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const { startLoadBalancingMonitor } = require("./utils/loadBalancer");
 const socketEvents = require("./utils/socketEvents");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +20,7 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
@@ -32,6 +34,7 @@ app.use("/api/health", require("./routes/healthRoutes"));
 app.use("/api/integrations", require("./routes/integrationRoutes"));
 // Add this line to your routes section
 app.use("/api/clearance", require("./routes/clearanceRoutes"));
+app.use("/api/uploads", require("./routes/uploadRoutes"));
 
 
 // Test routes
