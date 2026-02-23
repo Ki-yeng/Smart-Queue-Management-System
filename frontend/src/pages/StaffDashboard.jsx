@@ -7,7 +7,7 @@ import {
   staffAction,
   transferTicket,
 } from "../services/ticketService";
-import { getCurrentUser } from "../services/authService";
+import { getCurrentUser, logoutUser } from "../services/authService";
 import axios from "axios";
 
 const STATUS_BADGE = {
@@ -193,11 +193,28 @@ const StaffDashboard = () => {
 
   const stats = dashboardStats?.summary || {};
   const systemMetrics = dashboardStats?.metrics || {};
+  const totalTicketsServed =
+    systemMetrics.totalTicketsServed && systemMetrics.totalTicketsServed > 0
+      ? systemMetrics.totalTicketsServed
+      : dashboardStats?.tickets?.completed || 0;
 
   return (
     <SidebarLayout>
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-3 flex justify-end">
+            <button
+              type="button"
+              onClick={async () => {
+                await logoutUser();
+                window.location.href = "/";
+              }}
+              className="text-red-600 font-semibold"
+            >
+              Logout
+            </button>
+          </div>
+
           <div className="bg-white rounded-xl shadow p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold">Live Queue</h3>
@@ -364,7 +381,7 @@ const StaffDashboard = () => {
               <div className="mt-3 text-sm text-gray-600">Average handling time</div>
               <div className="font-bold">{stats.avgServiceTime || 0} min</div>
               <div className="mt-3 text-sm text-gray-500">Peak hour: {dashboardStats?.peakHour || "-"}</div>
-              <div className="mt-3 text-sm text-gray-500">Total tickets served: {systemMetrics.totalTicketsServed || 0}</div>
+              <div className="mt-3 text-sm text-gray-500">Total tickets served: {totalTicketsServed}</div>
             </div>
           </div>
 

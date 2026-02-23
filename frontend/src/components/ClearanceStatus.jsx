@@ -1,19 +1,11 @@
-// src/components/ClearanceStatus.jsx
 import React, { useEffect, useState } from "react";
 
-/**
- * =========================================
- * 🟢 STEP 1: CLEARANCE STATUS PANEL
- * -----------------------------------------
- * Visibility ONLY.
- * No blocking.
- * No smart routing.
- * =========================================
- */
+const RESOLVED_STATUSES = ["CLEARED", "PAID", "REGISTERED"];
 
-const ClearanceStatus = ({ user }) => {
+const ClearanceStatus = ({ user, onResolveDepartment }) => {
   const [loading, setLoading] = useState(true);
   const [clearance, setClearance] = useState({});
+
   const token = localStorage.getItem("token");
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -33,97 +25,55 @@ const ClearanceStatus = ({ user }) => {
           },
         });
 
-        if (!res.ok)
-          throw new Error(`Failed to fetch clearance: ${res.status}`);
+        if (!res.ok) throw new Error(`Failed to fetch clearance: ${res.status}`);
 
         const data = await res.json();
-        setClearance(data);
+        setClearance(data || {});
       } catch (err) {
         console.error("Clearance fetch error:", err.message);
-
-        // 🔹 DEV FALLBACK (VISIBILITY ONLY)
-        setClearance({
-          finance: {
-            status: "PENDING",
-            message: "Outstanding fee balance detected",
-          },
-          academics: {
-            status: "REGISTERED",
-            message: "All required units registered",
-          },
-          examinations: {
-            status: "BLOCKED",
-            message: "Exam access blocked due to pending fees",
-          },
-          library: {
-            status: "CLEARED",
-            message: "No pending library books",
-          },
-        });
+        setClearance({});
       } finally {
         setLoading(false);
       }
     };
 
     fetchClearance();
-  }, [user, token]);
+  }, [user, token, API_URL]);
 
   if (!user) return null;
 
   return (
     <div className="bg-white p-4 rounded-xl shadow">
-      <h3 className="font-bold text-xl mb-3">
-        My Clearance Status
-      </h3>
+      <h3 className="font-bold text-xl mb-3">My Clearance Status</h3>
 
       {loading ? (
         <p>Loading clearance status...</p>
       ) : Object.keys(clearance).length === 0 ? (
-        <p className="text-gray-500">
-          No clearance data available
-        </p>
+        <p className="text-gray-500">No clearance data available</p>
       ) : (
         <ul className="space-y-2">
           {Object.entries(clearance).map(([dept, data]) => {
-            const okStatuses = ["CLEARED", "PAID", "REGISTERED"];
-            const isOk = okStatuses.includes(data.status);
+            const status = data?.status || "PENDING";
+            const isResolved = RESOLVED_STATUSES.includes(status);
 
             return (
-              <li
-                key={dept}
-                className="border-b pb-2"
-              >
+              <li key={dept} className="border-b pb-2">
                 <div className="flex justify-between items-center">
-                  <span className="capitalize font-medium">
-                    {dept}
-                  </span>
-
-                  <span
-                    className={`font-semibold ${
-                      isOk
-                        ? "text-green-600"
-                        : "text-red-600"
-                    }`}
-                  >
-                    {data.status}
+                  <span className="capitalize font-medium">{dept}</span>
+                  <span className={`font-semibold ${isResolved ? "text-green-600" : "text-red-600"}`}>
+                    {status}
                   </span>
                 </div>
 
-                {/* 🔹 Explanation (ROOT CAUSE) */}
-                <p className="text-sm text-gray-500 mt-1">
-                  {data.message}
-                </p>
+                <p className="text-sm text-gray-500 mt-1">{data?.note || data?.message || ""}</p>
 
-                {/* 🔹 Placeholder Action */}
                 <button
-                  className="text-sm text-blue-600 mt-1 hover:underline"
-                  onClick={() =>
-                    console.log(
-                      `Resolve ${dept} clicked`
-                    )
-                  }
+                  type="button"
+                  onClick={() => onResolveDepartment && onResolveDepartment(dept)}
+                  disabled={isResolved}
+                  className="text-sm text-blue-600 mt-1 hover:underline disabled:text-gray-400 disabled:no-underline"
                 >
-                  Resolve Now
+                  {isResolved ? "Resolved" : "Resolve Now"}
                 </button>
               </li>
             );

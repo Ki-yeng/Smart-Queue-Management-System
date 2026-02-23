@@ -79,6 +79,23 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Student profile fields (shown on student dashboard)
+    registrationNumber: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    program: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    course: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
     // VIP/Priority status
     isVIP: {
       type: Boolean,

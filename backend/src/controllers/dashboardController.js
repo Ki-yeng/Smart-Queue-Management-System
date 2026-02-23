@@ -49,21 +49,35 @@ exports.getDashboardStats = async (req, res) => {
     let avgWaitingTime = 0;
     let avgServiceTime = 0;
     if (completedTicketsData.length > 0) {
-      // Average waiting time (creation to serving)
-      const totalWaitTime = completedTicketsData.reduce((acc, ticket) => {
-        const waitTime = ticket.servedAt
-          ? (new Date(ticket.servedAt) - new Date(ticket.createdAt)) / 1000
-          : 0;
-        return acc + waitTime;
-      }, 0);
-      avgWaitingTime = Math.round(totalWaitTime / completedTicketsData.length);
+      const MAX_REASONABLE_SECONDS = 8 * 60 * 60; // 8 hours cap to avoid skew from stale/bad timestamps
 
-      // Average service time (serving to completion)
-      const totalServiceTime = completedTicketsData.reduce((acc, ticket) => {
-        const serviceTime = (new Date(ticket.completedAt) - new Date(ticket.servedAt || ticket.createdAt)) / 1000;
-        return acc + serviceTime;
-      }, 0);
-      avgServiceTime = Math.round(totalServiceTime / completedTicketsData.length);
+      const waitTimes = completedTicketsData
+        .map((ticket) => {
+          if (!ticket.servedAt || !ticket.createdAt) return null;
+          const seconds = (new Date(ticket.servedAt) - new Date(ticket.createdAt)) / 1000;
+          if (!Number.isFinite(seconds) || seconds < 0 || seconds > MAX_REASONABLE_SECONDS) return null;
+          return seconds;
+        })
+        .filter((seconds) => seconds !== null);
+
+      const serviceTimes = completedTicketsData
+        .map((ticket) => {
+          if (!ticket.completedAt || !ticket.servedAt) return null;
+          const seconds = (new Date(ticket.completedAt) - new Date(ticket.servedAt)) / 1000;
+          if (!Number.isFinite(seconds) || seconds < 0 || seconds > MAX_REASONABLE_SECONDS) return null;
+          return seconds;
+        })
+        .filter((seconds) => seconds !== null);
+
+      if (waitTimes.length > 0) {
+        const totalWaitTime = waitTimes.reduce((acc, seconds) => acc + seconds, 0);
+        avgWaitingTime = Math.round(totalWaitTime / waitTimes.length);
+      }
+
+      if (serviceTimes.length > 0) {
+        const totalServiceTime = serviceTimes.reduce((acc, seconds) => acc + seconds, 0);
+        avgServiceTime = Math.round(totalServiceTime / serviceTimes.length);
+      }
     }
 
     // ===== COUNTER STATISTICS =====

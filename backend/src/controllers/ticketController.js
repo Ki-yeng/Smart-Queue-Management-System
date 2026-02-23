@@ -100,6 +100,8 @@ exports.staffAction = async (req, res) => {
         if (ticket.status !== "serving") return res.status(400).json({ message: "Only serving tickets can be completed" });
         ticket.status = "completed";
         ticket.completedAt = new Date();
+        ticket.serviceEndTime = ticket.completedAt;
+        if (!ticket.serviceStartTime && ticket.servedAt) ticket.serviceStartTime = ticket.servedAt;
         await ticket.save();
         if (ticket.counterId) await updateCounterMetricsOnCompletion(ticket.counterId, ticket);
         break;
@@ -239,6 +241,9 @@ exports.createTicket = async (req, res) => {
     });
   } catch (err) {
     console.error("Create ticket error:", err);
+    if (err?.name === "ValidationError") {
+      return res.status(400).json({ message: err.message });
+    }
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -567,6 +572,7 @@ exports.serveTicket = async (req, res) => {
     // 3) Assign ownership
     ticket.status = "serving";
     ticket.servedAt = new Date();
+    ticket.serviceStartTime = ticket.servedAt;
     ticket.servedBy = req.user?.id || null;
     if (counter) {
       ticket.counterId = counter._id;
@@ -643,6 +649,8 @@ exports.completeTicket = async (req, res) => {
 
     ticket.status = "completed";
     ticket.completedAt = new Date();
+    ticket.serviceEndTime = ticket.completedAt;
+    if (!ticket.serviceStartTime && ticket.servedAt) ticket.serviceStartTime = ticket.servedAt;
     await ticket.save();
 
     // Update counter to open and remove current ticket

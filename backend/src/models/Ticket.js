@@ -1,103 +1,116 @@
-// Import mongoose
 const mongoose = require("mongoose");
 
-// Define Ticket schema for the queue system
+const SERVICE_ENUM = [
+  "Admissions",
+  "Finance",
+  "Examinations",
+  "Library",
+  "Accommodation",
+  "Student Records",
+  "ICT Support",
+  "Counselling",
+  "General Enquiries",
+];
+
 const ticketSchema = new mongoose.Schema(
   {
-    // Auto-incremented number you will generate in the controller
     ticketNumber: {
       type: Number,
       required: true,
     },
 
-    // Which university service the student is queuing for
+    // Existing field used by current queue flows
     serviceType: {
       type: String,
       required: true,
-      enum: [
-        "Admissions",
-        "Finance",
-        "Examinations",
-        "Library",
-        "Accommodation",
-        "Student Records",
-        "ICT Support",
-        "Counselling",
-        "General Enquiries"
-      ],
+      enum: SERVICE_ENUM,
     },
 
-    // Current status of the ticket
+    // Required admin analytics field name
+    department: {
+      type: String,
+      default: null,
+      enum: SERVICE_ENUM,
+    },
+
     status: {
       type: String,
-      enum: ["waiting", "serving","on_hold", "completed", "cancelled","transferred"],
+      enum: ["waiting", "serving", "completed", "on_hold", "cancelled", "transferred"],
       default: "waiting",
     },
 
-    // Priority level for the ticket (higher number = higher priority)
     priority: {
       type: String,
       enum: ["normal", "high", "urgent", "vip"],
       default: "normal",
     },
-
-    // Priority score for sorting (automatically calculated)
     priorityScore: {
       type: Number,
       default: 0,
     },
 
-    // Optional: student/user who created the ticket
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: false,
     },
+    studentName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    email: {
+      type: String,
+      default: "",
+      trim: true,
+      lowercase: true,
+    },
 
-    // Time when serving starts
+    // Required admin analytics fields
+    servedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    serviceStartTime: {
+      type: Date,
+      default: null,
+    },
+    serviceEndTime: {
+      type: Date,
+      default: null,
+    },
+
+    // Backward-compatible fields used elsewhere in the codebase
     servedAt: {
       type: Date,
       default: null,
     },
-// Staff who served the ticket
-servedBy: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "User",
-  default: null,
-},
-
-        // Time when ticket was completed
     completedAt: {
       type: Date,
       default: null,
     },
-// Time when ticket was transferred
-transferredAt: {
-  type: Date,
-  default: null,
-},
-
-    // Time when ticket was cancelled
+    transferredAt: {
+      type: Date,
+      default: null,
+    },
     cancelledAt: {
       type: Date,
       default: null,
     },
-// Parent ticket (used when this ticket was created via transfer)
-parentTicketId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Ticket",
-  default: null,
-},
 
-// Child tickets created from this ticket
-childTicketIds: [
-  {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Ticket",
-  },
-],
+    parentTicketId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Ticket",
+      default: null,
+    },
+    childTicketIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Ticket",
+      },
+    ],
 
-    // Transfer history to track which counters this ticket has been served at
     transferHistory: [
       {
         fromCounterId: {
@@ -117,18 +130,26 @@ childTicketIds: [
     ],
 
     counterId: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: "Counter",
-  default: null,
-},
-
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Counter",
+      default: null,
+    },
   },
-
-  // Mongoose will automatically add createdAt and updatedAt
   {
-    timestamps: true,
+    timestamps: true, // createdAt, updatedAt
   }
 );
 
-// Export model
+// Keep legacy and new analytics fields aligned.
+ticketSchema.pre("validate", function syncFields() {
+  if (!this.department && this.serviceType) this.department = this.serviceType;
+  if (!this.serviceType && this.department) this.serviceType = this.department;
+
+  if (!this.serviceStartTime && this.servedAt) this.serviceStartTime = this.servedAt;
+  if (!this.servedAt && this.serviceStartTime) this.servedAt = this.serviceStartTime;
+
+  if (!this.serviceEndTime && this.completedAt) this.serviceEndTime = this.completedAt;
+  if (!this.completedAt && this.serviceEndTime) this.completedAt = this.serviceEndTime;
+});
+
 module.exports = mongoose.model("Ticket", ticketSchema);

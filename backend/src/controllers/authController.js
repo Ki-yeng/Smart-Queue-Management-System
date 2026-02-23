@@ -236,10 +236,16 @@ exports.login = async (req, res) => {
       refreshToken,
       user: { 
         id: user._id, 
+        _id: user._id,
         name: user.name, 
         email: user.email, 
         role: user.role,
         department: user.department || null,
+        registrationNumber: user.registrationNumber || null,
+        studentNumber: user.registrationNumber || null,
+        program: user.program || user.course || null,
+        course: user.course || user.program || null,
+        studentYear: user.studentYear || null,
       },
     });
   } catch (err) {
@@ -283,6 +289,7 @@ exports.getCurrentUser = async (req, res) => {
       message: "Current user fetched",
       user: {
         id: user._id,
+        _id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
@@ -290,6 +297,11 @@ exports.getCurrentUser = async (req, res) => {
         isActive: user.isActive,
         lastLogin: user.lastLogin,
         createdAt: user.createdAt,
+        registrationNumber: user.registrationNumber || null,
+        studentNumber: user.registrationNumber || null,
+        program: user.program || user.course || null,
+        course: user.course || user.program || null,
+        studentYear: user.studentYear || null,
       },
     });
   } catch (err) {

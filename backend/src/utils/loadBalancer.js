@@ -271,13 +271,19 @@ const getLoadBalancingDashboard = async () => {
     ).length;
 
     // Find counter with highest and lowest load
-    const mostLoaded = validMetrics.reduce((prev, current) =>
-      prev.loadScore > current.loadScore ? prev : current
-    );
+    const mostLoaded =
+      validMetrics.length > 0
+        ? validMetrics.reduce((prev, current) =>
+            prev.loadScore > current.loadScore ? prev : current
+          )
+        : null;
 
-    const leastLoaded = validMetrics.reduce((prev, current) =>
-      prev.loadScore < current.loadScore ? prev : current
-    );
+    const leastLoaded =
+      validMetrics.length > 0
+        ? validMetrics.reduce((prev, current) =>
+            prev.loadScore < current.loadScore ? prev : current
+          )
+        : null;
 
     return {
       timestamp: new Date(),
@@ -330,10 +336,15 @@ const startLoadBalancingMonitor = (io, interval = 10000) => {
           const serviceMetrics = dashboard.counterMetrics.filter(m => 
             m.serviceTypes.includes(service)
           );
+          const avgLoad =
+            serviceMetrics.length > 0
+              ? Math.round(serviceMetrics.reduce((sum, m) => sum + m.loadScore, 0) / serviceMetrics.length)
+              : 0;
+
           io.to(`service-${service}`).emit("service-load-updated", {
             serviceType: service,
             counterMetrics: serviceMetrics,
-            avgLoad: Math.round(serviceMetrics.reduce((sum, m) => sum + m.loadScore, 0) / serviceMetrics.length),
+            avgLoad,
           });
         }
       }

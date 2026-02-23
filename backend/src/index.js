@@ -32,6 +32,7 @@ app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/load-balance", require("./routes/loadBalancingRoutes"));
 app.use("/api/health", require("./routes/healthRoutes"));
 app.use("/api/integrations", require("./routes/integrationRoutes"));
+app.use("/api/admin", require("./routes/adminRoutes"));
 // Add this line to your routes section
 app.use("/api/clearance", require("./routes/clearanceRoutes"));
 app.use("/api/uploads", require("./routes/uploadRoutes"));
