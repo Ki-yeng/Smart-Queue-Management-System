@@ -33,6 +33,13 @@ const KpiCard = ({ label, value }) => (
   </div>
 );
 
+const formatMinutesToHoursMins = (minutesValue) => {
+  const totalMinutes = Number.isFinite(minutesValue) ? Math.max(0, Math.round(minutesValue)) : 0;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} hrs ${minutes} mins`;
+};
+
 const AdminDashboard = () => {
   const [ticketsPerDay, setTicketsPerDay] = useState([]);
   const [departmentStats, setDepartmentStats] = useState([]);
@@ -97,7 +104,8 @@ const AdminDashboard = () => {
       { weighted: 0, samples: 0 }
     );
 
-    const avgWaitAll = waitSummary.samples > 0 ? (waitSummary.weighted / waitSummary.samples).toFixed(2) : "0.00";
+    const avgWaitMinutes = waitSummary.samples > 0 ? waitSummary.weighted / waitSummary.samples : 0;
+    const avgWaitAll = formatMinutesToHoursMins(avgWaitMinutes);
 
     return {
       totalToday,
@@ -153,7 +161,7 @@ const AdminDashboard = () => {
           <KpiCard label="Total Tickets Today" value={summary.totalToday} />
           <KpiCard label="Total Tickets (All Time)" value={summary.totalTickets} />
           <KpiCard label="Pending Tickets" value={summary.pending} />
-          <KpiCard label="Average Wait (mins)" value={summary.avgWaitAll} />
+          <KpiCard label="Average Wait" value={summary.avgWaitAll} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const ticketController = require("../controllers/ticketController");
+const { protect, staffOnly } = require("../middleware/authMiddleware");
 
 // Create a new ticket (student)
 router.post("/", ticketController.createTicket);
@@ -13,7 +14,7 @@ router.get("/latest/:userId", ticketController.getLatestTicket);
 router.get("/", ticketController.getAllTickets);
 
 // Get waiting tickets (optional serviceType filter)
-router.get("/waiting", ticketController.getWaitingTickets);
+router.get("/waiting", protect, staffOnly, ticketController.getWaitingTickets);
 
 // Central queue overview (aggregated)
 router.get("/queue-overview", ticketController.getQueueOverview);
@@ -25,30 +26,33 @@ router.get("/next/:serviceType", ticketController.getNextTicket);
 router.get("/:id", ticketController.getTicketById);
 
 // Serve ticket
-router.put("/serve/:id", ticketController.serveTicket);
+router.put("/serve/:id", protect, staffOnly, ticketController.serveTicket);
 
 // Complete ticket
-router.put("/complete/:id", ticketController.completeTicket);
+router.put("/complete/:id", protect, staffOnly, ticketController.completeTicket);
+
+// Put ticket on hold
+router.put("/hold/:id", protect, staffOnly, ticketController.holdTicket);
 
 // Cancel ticket
 router.put("/cancel/:id", ticketController.cancelTicket);
 
 // Transfer ticket to another counter
-router.put("/transfer/:id", ticketController.transferTicket);
+router.put("/transfer/:id", protect, staffOnly, ticketController.transferTicket);
 
 // Staff action (workflow updates)
-router.post("/staff-action", ticketController.staffAction);
+router.post("/staff-action", protect, staffOnly, ticketController.staffAction);
 
 // Update ticket priority
-router.put("/priority/:id", ticketController.updateTicketPriority);
+router.put("/priority/:id", protect, staffOnly, ticketController.updateTicketPriority);
 
 // Mark ticket as VIP
-router.put("/vip/:id", ticketController.markAsVIP);
+router.put("/vip/:id", protect, staffOnly, ticketController.markAsVIP);
 
 // Mark ticket as requiring accessibility accommodation
-router.put("/accessibility/:id", ticketController.markAccessibilityNeeds);
+router.put("/accessibility/:id", protect, staffOnly, ticketController.markAccessibilityNeeds);
 
 // Priority queue summary
-router.get("/summary/priority", ticketController.getPriorityQueueSummary);
+router.get("/summary/priority", protect, staffOnly, ticketController.getPriorityQueueSummary);
 
 module.exports = router;

@@ -15,10 +15,22 @@ const server = http.createServer(app);
 const clearanceRoutes = require("./routes/clearanceRoutes");
 
 // Middleware
-app.use(cors({
-  origin: "http://localhost:5173", // Vite
-  credentials: true,
-}));
+const allowedOrigins = [
+  process.env.CORS_ORIGIN,
+  process.env.SOCKET_IO_ORIGIN,
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("CORS blocked"));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 
@@ -32,6 +44,7 @@ app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/load-balance", require("./routes/loadBalancingRoutes"));
 app.use("/api/health", require("./routes/healthRoutes"));
 app.use("/api/integrations", require("./routes/integrationRoutes"));
+app.use("/api/office", require("./routes/officeIntegrationRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 // Add this line to your routes section
 app.use("/api/clearance", require("./routes/clearanceRoutes"));
@@ -71,7 +84,7 @@ try {
   // Initialize Socket.IO with production-ready options
   io = new Server(server, {
     cors: {
-      origin: process.env.SOCKET_IO_ORIGIN || "http://localhost:5173",
+      origin: allowedOrigins,
       methods: ["GET", "POST"],
       credentials: true,
       allowedHeaders: ["Content-Type", "Authorization"],

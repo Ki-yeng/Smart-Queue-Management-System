@@ -539,6 +539,28 @@ const CustomerPage = () => {
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-bold text-xl mb-3">Ticket History</h3>
+              {ticketHistory.length === 0 && <div className="text-sm text-gray-500">No ticket history yet</div>}
+              <div className="space-y-2">
+                {ticketHistory.slice(0, 5).map((t) => (
+                  <div key={t._id} className="border rounded p-2">
+                    <div className="font-semibold">
+                      #{t.ticketNumber} | {t.serviceType}
+                    </div>
+                    <div className="text-xs text-gray-500">Status: {t.status}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-bold text-xl mb-2">Announcements</h3>
+              {announcements[announcementIndex]}
+            </div>
 
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Self-Service & Uploads</h3>
@@ -562,15 +584,14 @@ const CustomerPage = () => {
                   {uploading ? "Uploading..." : "Upload Documents"}
                 </button>
                 <div className="text-xs text-gray-500">Recent uploads</div>
-                <div className="space-y-1 text-xs text-gray-600">
+                <div className="space-y-3">
                   {(uploads || []).slice(0, 3).map((u) => (
-                    <div key={u._id} className="truncate">
+                    <div key={u._id} className="truncate text-xs text-gray-600">
                       {u.originalName}
                     </div>
                   ))}
-                  {(!uploads || uploads.length === 0) && <div>No uploads yet</div>}
+                  {(!uploads || uploads.length === 0) && <div className="text-xs text-gray-600">No uploads yet</div>}
                 </div>
-
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <a className="border rounded p-2 text-center" href="/student/upload-docs">
                     Open Upload Center
@@ -586,26 +607,6 @@ const CustomerPage = () => {
                   </a>
                 </div>
               </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Ticket History</h3>
-              {ticketHistory.length === 0 && <div className="text-sm text-gray-500">No ticket history yet</div>}
-              <div className="space-y-2">
-                {ticketHistory.slice(0, 5).map((t) => (
-                  <div key={t._id} className="border rounded p-2">
-                    <div className="font-semibold">
-                      #{t.ticketNumber} | {t.serviceType}
-                    </div>
-                    <div className="text-xs text-gray-500">Status: {t.status}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-2">Announcements</h3>
-              {announcements[announcementIndex]}
             </div>
           </div>
         </div>

@@ -91,12 +91,13 @@ exports.getAverageWaitTime = async (req, res) => {
       {
         $addFields: {
           departmentSafe: { $ifNull: ["$department", "$serviceType"] },
-          serviceStartSafe: { $ifNull: ["$serviceStartTime", "$servedAt"] },
+          completedAtSafe: { $ifNull: ["$completedAt", "$serviceEndTime"] },
         },
       },
       {
         $match: {
-          serviceStartSafe: { $ne: null },
+          status: "completed",
+          completedAtSafe: { $ne: null },
           createdAt: { $ne: null },
           departmentSafe: { $ne: null },
         },
@@ -105,7 +106,7 @@ exports.getAverageWaitTime = async (req, res) => {
         $project: {
           department: "$departmentSafe",
           waitMinutes: {
-            $divide: [{ $subtract: ["$serviceStartSafe", "$createdAt"] }, 1000 * 60],
+            $divide: [{ $subtract: ["$completedAtSafe", "$createdAt"] }, 1000 * 60],
           },
         },
       },

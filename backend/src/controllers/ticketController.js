@@ -545,7 +545,7 @@ exports.serveTicket = async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
-    if (ticket.status !== "waiting") {
+    if (!["waiting", "on_hold"].includes(ticket.status)) {
       return res.status(400).json({
         message: `Cannot serve ticket with status ${ticket.status}`,
       });
@@ -680,6 +680,50 @@ exports.completeTicket = async (req, res) => {
     res.json({ message: "Ticket completed", ticket });
   } catch (err) {
     console.error("Complete ticket error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Put ticket on hold and release counter
+ */
+exports.holdTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ticket = await Ticket.findById(id).populate("counterId", "counterName status");
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    if (ticket.status !== "serving") {
+      return res.status(400).json({ message: "Only serving tickets can be put on hold" });
+    }
+
+    ticket.status = "on_hold";
+    await ticket.save();
+
+    let updatedCounter = null;
+    if (ticket.counterId) {
+      updatedCounter = await Counter.findByIdAndUpdate(
+        ticket.counterId,
+        { status: "open", currentTicket: null },
+        { new: true }
+      );
+    }
+
+    const io = req.app?.get("io");
+    if (io) {
+      emitTicketToServiceAndDashboard(io, ticket, "ticketOnHold", {
+        message: `Ticket #${ticket.ticketNumber} placed on hold`,
+      });
+      if (updatedCounter) {
+        emitCounterStatusUpdated(io, updatedCounter);
+        emitCounterStatusChanged(io, updatedCounter, "busy", "Ticket put on hold");
+      }
+      emitQueueUpdated(io, ticket.serviceType);
+    }
+
+    res.json({ message: "Ticket put on hold", ticket });
+  } catch (err) {
+    console.error("Hold ticket error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
