@@ -10,6 +10,7 @@ import {
 import { getCurrentUser } from "../services/authService";
 import { getUserUploads, uploadDocuments } from "../services/uploadService";
 import { getClearanceStatus } from "../services/clearanceService";
+import { getMyFeedback, submitFeedback } from "../services/feedbackService";
 import ClearanceStatus from "../components/ClearanceStatus";
 import io from "socket.io-client";
 
@@ -90,6 +91,16 @@ const CustomerPage = () => {
   const [uploads, setUploads] = useState([]);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [feedbackList, setFeedbackList] = useState([]);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState({
+    type: "feedback",
+    rating: 5,
+    category: "general",
+    ticketId: "",
+    message: "",
+    priority: "medium",
+  });
 
   const socketRef = useRef(null);
   const notificationsEndRef = useRef(null);
@@ -128,6 +139,19 @@ const CustomerPage = () => {
       }
     })();
   }, [user, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const data = await getMyFeedback(token, 10);
+        setFeedbackList(data || []);
+      } catch (err) {
+        console.warn("Feedback fetch failed", err);
+        setFeedbackList([]);
+      }
+    })();
+  }, [token, ticketHistory.length]);
 
   useEffect(() => {
     if (!user) return;
@@ -389,6 +413,40 @@ const CustomerPage = () => {
     }
   };
 
+  const handleSubmitFeedback = async () => {
+    if (!feedbackForm.message.trim()) return alert("Please enter your feedback message.");
+    if (feedbackForm.type === "feedback" && (!feedbackForm.rating || Number(feedbackForm.rating) < 1 || Number(feedbackForm.rating) > 5)) {
+      return alert("Rating must be between 1 and 5.");
+    }
+
+    setFeedbackSubmitting(true);
+    try {
+      const payload = {
+        type: feedbackForm.type,
+        rating: feedbackForm.type === "feedback" ? Number(feedbackForm.rating) : undefined,
+        category: feedbackForm.category,
+        ticketId: feedbackForm.ticketId || undefined,
+        message: feedbackForm.message.trim(),
+        priority: feedbackForm.type === "complaint" ? feedbackForm.priority : undefined,
+      };
+
+      await submitFeedback(payload, token);
+      const data = await getMyFeedback(token, 10);
+      setFeedbackList(data || []);
+      setFeedbackForm((prev) => ({
+        ...prev,
+        message: "",
+        ticketId: "",
+      }));
+      alert("Submitted successfully.");
+    } catch (err) {
+      console.error("Submit feedback failed", err);
+      alert(err?.response?.data?.message || "Failed to submit feedback.");
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
   const overall = getOverallStatus();
   const eligibility = getActionEligibility(selectedAction);
   const regNo = getRegistrationNo(user);
@@ -537,6 +595,98 @@ const CustomerPage = () => {
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-bold text-xl mb-3">Feedback, Rating & Complaints</h3>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <select
+                    value={feedbackForm.type}
+                    onChange={(e) => setFeedbackForm((s) => ({ ...s, type: e.target.value }))}
+                    className="border rounded p-2"
+                  >
+                    <option value="feedback">Feedback</option>
+                    <option value="complaint">Complaint</option>
+                  </select>
+                  <select
+                    value={feedbackForm.category}
+                    onChange={(e) => setFeedbackForm((s) => ({ ...s, category: e.target.value }))}
+                    className="border rounded p-2"
+                  >
+                    <option value="general">General</option>
+                    <option value="service_quality">Service Quality</option>
+                    <option value="delay">Delay</option>
+                    <option value="staff_conduct">Staff Conduct</option>
+                    <option value="system">System</option>
+                  </select>
+                </div>
+                {feedbackForm.type === "feedback" ? (
+                  <select
+                    value={feedbackForm.rating}
+                    onChange={(e) => setFeedbackForm((s) => ({ ...s, rating: Number(e.target.value) }))}
+                    className="w-full border rounded p-2 text-sm"
+                  >
+                    <option value={5}>5 - Excellent</option>
+                    <option value={4}>4 - Good</option>
+                    <option value={3}>3 - Average</option>
+                    <option value={2}>2 - Poor</option>
+                    <option value={1}>1 - Very Poor</option>
+                  </select>
+                ) : (
+                  <select
+                    value={feedbackForm.priority}
+                    onChange={(e) => setFeedbackForm((s) => ({ ...s, priority: e.target.value }))}
+                    className="w-full border rounded p-2 text-sm"
+                  >
+                    <option value="low">Low Priority</option>
+                    <option value="medium">Medium Priority</option>
+                    <option value="high">High Priority</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                )}
+                <select
+                  value={feedbackForm.ticketId}
+                  onChange={(e) => setFeedbackForm((s) => ({ ...s, ticketId: e.target.value }))}
+                  className="w-full border rounded p-2 text-sm"
+                >
+                  <option value="">Link to ticket (optional)</option>
+                  {ticketHistory
+                    .filter((t) => t.status === "completed")
+                    .slice(0, 20)
+                    .map((t) => (
+                      <option key={t._id} value={t._id}>
+                        #{t.ticketNumber} - {t.serviceType}
+                      </option>
+                    ))}
+                </select>
+                <textarea
+                  value={feedbackForm.message}
+                  onChange={(e) => setFeedbackForm((s) => ({ ...s, message: e.target.value }))}
+                  placeholder="Write your feedback or complaint..."
+                  rows={3}
+                  className="w-full border rounded p-2 text-sm"
+                />
+                <button
+                  onClick={handleSubmitFeedback}
+                  disabled={feedbackSubmitting}
+                  className="w-full bg-[#182B5C] text-white py-2 rounded disabled:opacity-60"
+                >
+                  {feedbackSubmitting ? "Submitting..." : "Submit"}
+                </button>
+                <div className="text-xs text-gray-500 pt-2">Recent submissions</div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {feedbackList.length === 0 && <div className="text-xs text-gray-500">No submissions yet</div>}
+                  {feedbackList.map((item) => (
+                    <div key={item._id} className="border rounded p-2 text-xs">
+                      <div className="font-semibold capitalize">
+                        {item.type} {item.rating ? `(${item.rating}/5)` : ""} - {item.status}
+                      </div>
+                      <div className="text-gray-600">{item.message}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

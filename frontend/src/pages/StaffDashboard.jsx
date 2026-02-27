@@ -30,6 +30,7 @@ import {
   verifyHostelPayment,
   verifyUnitRegistration,
 } from "../services/officeService";
+import { getFeedbackQueue, getFeedbackSummary, updateFeedbackStatus } from "../services/feedbackService";
 import { getCurrentUser, logoutUser } from "../services/authService";
 import axios from "axios";
 
@@ -66,6 +67,9 @@ const StaffDashboard = () => {
   const [integrationTransactions, setIntegrationTransactions] = useState([]);
   const [queueError, setQueueError] = useState("");
   const [activeServingTicketId, setActiveServingTicketId] = useState(null);
+  const [complaints, setComplaints] = useState([]);
+  const [feedbackSummary, setFeedbackSummary] = useState(null);
+  const [complaintStatusFilter, setComplaintStatusFilter] = useState("open");
 
   const pollingRef = useRef(null);
   const callStartRef = useRef(null);
@@ -114,13 +118,17 @@ const StaffDashboard = () => {
     fetchQueue();
     fetchTickets();
     fetchDashboardStats();
+    fetchComplaintQueue();
+    fetchFeedbackSummary();
     pollingRef.current = setInterval(() => {
       fetchQueue();
       fetchTickets();
       fetchDashboardStats();
+      fetchComplaintQueue();
+      fetchFeedbackSummary();
     }, 5000);
     return () => clearInterval(pollingRef.current);
-  }, [filterService, statusFilter]);
+  }, [filterService, statusFilter, complaintStatusFilter]);
 
   useEffect(() => {
     const onConnect = () => setSocketState("connected");
@@ -190,6 +198,30 @@ const StaffDashboard = () => {
       setDashboardStats(res.data?.data || null);
     } catch (err) {
       console.warn("fetchDashboardStats failed", err);
+    }
+  };
+
+  const fetchComplaintQueue = async () => {
+    try {
+      const data = await getFeedbackQueue(token, {
+        type: "complaint",
+        status: complaintStatusFilter || undefined,
+        limit: 20,
+      });
+      setComplaints(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("fetchComplaintQueue failed", err);
+      setComplaints([]);
+    }
+  };
+
+  const fetchFeedbackSummary = async () => {
+    try {
+      const data = await getFeedbackSummary(token);
+      setFeedbackSummary(data || null);
+    } catch (err) {
+      console.warn("fetchFeedbackSummary failed", err);
+      setFeedbackSummary(null);
     }
   };
 
@@ -478,6 +510,21 @@ const StaffDashboard = () => {
       setIntegrationError(err?.response?.data?.message || "Failed to load profile/transactions");
     } finally {
       setOfficeActionLoading(false);
+    }
+  };
+
+  const handleComplaintStatusUpdate = async (complaintId, nextStatus) => {
+    try {
+      await updateFeedbackStatus(
+        complaintId,
+        { status: nextStatus, note: `Status changed to ${nextStatus} by staff` },
+        token
+      );
+      fetchComplaintQueue();
+      fetchFeedbackSummary();
+    } catch (err) {
+      console.error("Complaint status update failed", err);
+      alert(err?.response?.data?.message || "Failed to update complaint");
     }
   };
 
@@ -796,6 +843,64 @@ const StaffDashboard = () => {
           <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
             <h3 className="font-bold mb-2">Manual Registration & Quick Actions</h3>
             <ManualRegistration onRegistered={fetchQueue} />
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold">Complaint Lifecycle Tracking</h3>
+              <select
+                value={complaintStatusFilter}
+                onChange={(e) => setComplaintStatusFilter(e.target.value)}
+                className="border p-2 rounded text-sm"
+              >
+                <option value="">All</option>
+                <option value="open">Open</option>
+                <option value="in_review">In Review</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+
+            <div className="text-xs text-gray-500 mb-3">
+              Avg Rating: {feedbackSummary?.avgRating ? Number(feedbackSummary.avgRating).toFixed(2) : "0.00"} / 5 | Total Ratings:{" "}
+              {feedbackSummary?.totalRatings || 0}
+            </div>
+
+            <div className="space-y-2">
+              {complaints.length === 0 && <div className="text-sm text-gray-500">No complaints found.</div>}
+              {complaints.map((item) => (
+                <div key={item._id} className="border rounded p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-sm">
+                        {item.userId?.name || "Unknown"} ({item.userId?.email || "N/A"})
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {item.category} | Priority: {item.priority} | Status: {item.status}
+                      </div>
+                    </div>
+                    <select
+                      value={item.status}
+                      onChange={(e) => handleComplaintStatusUpdate(item._id, e.target.value)}
+                      className="border p-2 rounded text-sm"
+                    >
+                      <option value="open">Open</option>
+                      <option value="in_review">In Review</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="closed">Closed</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                  <div className="text-sm mt-2">{item.message}</div>
+                  {item.ticketId && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Ticket #{item.ticketId.ticketNumber} ({item.ticketId.serviceType})
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>

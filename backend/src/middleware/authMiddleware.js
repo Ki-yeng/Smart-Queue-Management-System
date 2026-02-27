@@ -78,7 +78,7 @@ exports.staffOnly = (req, res, next) => {
  */
 exports.customerOnly = (req, res, next) => {
   if (!req.user) return res.status(401).json({ message: "Not authenticated" });
-  if (req.user.role !== "customer") {
+  if (!["customer", "student"].includes(req.user.role)) {
     return res.status(403).json({ 
       message: "Forbidden: Customer access required",
       userRole: req.user.role 
@@ -92,7 +92,7 @@ exports.customerOnly = (req, res, next) => {
  */
 exports.customerOrStaff = (req, res, next) => {
   if (!req.user) return res.status(401).json({ message: "Not authenticated" });
-  if (!["customer", "staff", "admin"].includes(req.user.role)) {
+  if (!["customer", "student", "staff", "admin"].includes(req.user.role)) {
     return res.status(403).json({ 
       message: "Forbidden: Customer or Staff access required",
       userRole: req.user.role 
