@@ -44,6 +44,57 @@ const STATUS_BADGE = {
   no_show: { label: "No Show", className: "bg-rose-100 text-rose-800" },
 };
 
+const OFFICE_ACTION_GROUPS = [
+  {
+    title: "Finance",
+    actions: [
+      { id: "feeBalance", label: "Fee Balance" },
+      { id: "feeVerify", label: "Verify Fee Clearance" },
+    ],
+  },
+  {
+    title: "Registry",
+    actions: [
+      { id: "transcript", label: "Transcript Request" },
+      { id: "examCard", label: "Generate Exam Card" },
+      { id: "unitVerify", label: "Verify Unit Reg" },
+      { id: "graduationTrack", label: "Track Graduation" },
+      { id: "academicStatus", label: "Academic Status" },
+    ],
+  },
+  {
+    title: "ICT",
+    actions: [
+      { id: "passwordReset", label: "Password Reset" },
+      { id: "ictIdCard", label: "ID Status" },
+      { id: "emailActivation", label: "Email Activation" },
+    ],
+  },
+  {
+    title: "Library",
+    actions: [
+      { id: "libraryFine", label: "Fine Balance" },
+      { id: "bookReturn", label: "Book Return" },
+      { id: "libraryClearance", label: "Library Clearance" },
+    ],
+  },
+  {
+    title: "Hostel",
+    actions: [
+      { id: "roomAllocation", label: "Room Allocation" },
+      { id: "hostelPayment", label: "Hostel Payment" },
+      { id: "hostelClearance", label: "Hostel Clearance" },
+    ],
+  },
+  {
+    title: "Security",
+    actions: [
+      { id: "securityCardProd", label: "ID Production" },
+      { id: "securityClearance", label: "Security Clearance" },
+    ],
+  },
+];
+
 const sameId = (a, b) => String(a || "") === String(b || "");
 
 const StaffDashboard = () => {
@@ -248,8 +299,49 @@ const StaffDashboard = () => {
     }
   };
 
+  const removeFromLiveQueue = (ticketId) => {
+    if (!ticketId) return;
+    setQueue((prev) => prev.filter((item) => !sameId(item._id, ticketId)));
+  };
+
+  const openTicketFromQueue = async (ticket) => {
+    if (!ticket?._id || actionLoading) return;
+    if (activeServingTicketId && !sameId(activeServingTicketId, ticket._id)) {
+      alert("Resolve your current serving ticket first.");
+      return;
+    }
+
+    if (ticket.status === "waiting") {
+      setActionLoading(true);
+      try {
+        const res = await axios.put(
+          `${API_URL}/api/tickets/serve/${ticket._id}`,
+          { counterId: null },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const servedTicket = res?.data?.ticket || { ...ticket, status: "serving" };
+        setCurrentTicket(servedTicket);
+        setActiveServingTicketId(servedTicket._id || ticket._id);
+        removeFromLiveQueue(ticket._id);
+        await fetchTicketDetails(ticket._id);
+        fetchTickets();
+      } catch (err) {
+        console.warn("Open ticket failed", err);
+        alert(err?.response?.data?.message || "Failed to open ticket");
+      } finally {
+        setActionLoading(false);
+      }
+      return;
+    }
+
+    setCurrentTicket(ticket);
+    setActiveServingTicketId(ticket._id);
+    await fetchTicketDetails(ticket._id);
+  };
+
   const completeCurrent = async () => {
     if (!currentTicket || actionLoading) return;
+    const currentTicketId = currentTicket._id;
 
     setActionLoading(true);
     try {
@@ -267,11 +359,14 @@ const StaffDashboard = () => {
     setCurrentTicket(null);
     setActiveServingTicketId(null);
     setSelectedTicketDetails(null);
+    removeFromLiveQueue(currentTicketId);
     fetchQueue();
+    fetchTickets();
   };
 
   const putOnHold = async () => {
     if (!currentTicket || actionLoading) return;
+    const currentTicketId = currentTicket._id;
     setActionLoading(true);
     try {
       await axios.put(
@@ -279,6 +374,7 @@ const StaffDashboard = () => {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      removeFromLiveQueue(currentTicketId);
       setCurrentTicket(null);
       setActiveServingTicketId(null);
       setSelectedTicketDetails(null);
@@ -320,15 +416,18 @@ const StaffDashboard = () => {
 
   const doTransfer = async () => {
     if (!selectedTicketDetails?.ticket || actionLoading) return;
+    const selectedTicketId = selectedTicketDetails.ticket._id;
     setActionLoading(true);
     try {
-      const res = await transferTicket(selectedTicketDetails.ticket._id, transferTarget, token);
-      if (selectedTicketDetails.ticket._id === activeServingTicketId) {
+      const res = await transferTicket(selectedTicketId, transferTarget, token);
+      if (selectedTicketId === activeServingTicketId) {
         setActiveServingTicketId(null);
       }
+      removeFromLiveQueue(selectedTicketId);
       setCurrentTicket(null);
       setSelectedTicketDetails(null);
       fetchQueue();
+      fetchTickets();
       alert(`Transferred to ${transferTarget} as Ticket #${res.newTicket?.ticketNumber || res.ticket?.ticketNumber}`);
     } catch (err) {
       console.error("doTransfer failed", err);
@@ -351,18 +450,20 @@ const StaffDashboard = () => {
 
   const holdSpecificTicket = async (ticket) => {
     if (!ticket?._id || actionLoading) return;
+    const ticketId = ticket._id;
     setActionLoading(true);
     try {
       await axios.put(
-        `${API_URL}/api/tickets/hold/${ticket._id}`,
+        `${API_URL}/api/tickets/hold/${ticketId}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      if (sameId(activeServingTicketId, ticket._id)) {
+      if (sameId(activeServingTicketId, ticketId)) {
         setCurrentTicket(null);
         setActiveServingTicketId(null);
         setSelectedTicketDetails(null);
       }
+      removeFromLiveQueue(ticketId);
       fetchQueue();
       fetchTickets();
     } catch (err) {
@@ -417,7 +518,7 @@ const StaffDashboard = () => {
   }, [currentUserId]);
 
   const runOfficeAction = async (operation) => {
-    const targetUserId = integrationTargetId || currentUserId;
+    const targetUserId = integrationTargetId;
     if (!targetUserId || officeActionLoading) return;
 
     setIntegrationError("");
@@ -478,7 +579,7 @@ const StaffDashboard = () => {
   };
 
   const loadIntegrationProfile = async () => {
-    const targetUserId = integrationTargetId || currentUserId;
+    const targetUserId = integrationTargetId;
     if (!targetUserId) return;
     setIntegrationError("");
     setOfficeActionLoading(true);
@@ -496,6 +597,14 @@ const StaffDashboard = () => {
     } finally {
       setOfficeActionLoading(false);
     }
+  };
+
+  const clearIntegrationContext = () => {
+    setIntegrationTargetId("");
+    setIntegrationResult(null);
+    setIntegrationError("");
+    setIntegrationProfile(null);
+    setIntegrationTransactions([]);
   };
 
   const handleComplaintStatusUpdate = async (complaintId, nextStatus) => {
@@ -519,6 +628,17 @@ const StaffDashboard = () => {
     systemMetrics.totalTicketsServed && systemMetrics.totalTicketsServed > 0
       ? systemMetrics.totalTicketsServed
       : dashboardStats?.tickets?.completed || 0;
+  const targetUserId = integrationTargetId || "";
+  const profileSections = integrationProfile
+    ? [
+        { key: "feeStatus", label: "Fee Status", value: integrationProfile.feeStatus },
+        { key: "academicStatus", label: "Academic Status", value: integrationProfile.academicStatus },
+        { key: "libraryStatus", label: "Library Status", value: integrationProfile.libraryStatus },
+        { key: "hostelStatus", label: "Hostel Status", value: integrationProfile.hostelStatus },
+        { key: "securityStatus", label: "Security Status", value: integrationProfile.securityStatus },
+        { key: "clearanceStatus", label: "Overall Clearance", value: integrationProfile.clearanceStatus },
+      ]
+    : [];
 
   return (
     <SidebarLayout>
@@ -581,9 +701,7 @@ const StaffDashboard = () => {
                     </div>
 
                     <button
-                      onClick={() => {
-                        fetchTicketDetails(t._id);
-                      }}
+                      onClick={() => openTicketFromQueue(t)}
                       className="text-sm text-blue-600"
                     >
                       Open
@@ -753,39 +871,38 @@ const StaffDashboard = () => {
               <button
                 type="button"
                 onClick={loadIntegrationProfile}
-                disabled={officeActionLoading || !integrationTargetId}
+                disabled={officeActionLoading || !targetUserId}
                 className="border rounded px-3 py-2"
               >
                 Load Profile & Transactions
               </button>
               <button
                 type="button"
-                onClick={() => setIntegrationResult(null)}
+                onClick={clearIntegrationContext}
                 className="border rounded px-3 py-2"
               >
-                Clear Result
+                Clear Student Data
               </button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-4">
-              <button onClick={() => runOfficeAction("feeBalance")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Fee Balance</button>
-              <button onClick={() => runOfficeAction("feeVerify")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Verify Fee Clearance</button>
-              <button onClick={() => runOfficeAction("transcript")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Transcript Request</button>
-              <button onClick={() => runOfficeAction("examCard")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Generate Exam Card</button>
-              <button onClick={() => runOfficeAction("unitVerify")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Verify Unit Reg</button>
-              <button onClick={() => runOfficeAction("graduationTrack")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Track Graduation</button>
-              <button onClick={() => runOfficeAction("academicStatus")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Academic Status</button>
-              <button onClick={() => runOfficeAction("passwordReset")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">ICT Password Reset</button>
-              <button onClick={() => runOfficeAction("ictIdCard")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">ICT ID Status</button>
-              <button onClick={() => runOfficeAction("emailActivation")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Email Activation</button>
-              <button onClick={() => runOfficeAction("libraryFine")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Library Fine</button>
-              <button onClick={() => runOfficeAction("bookReturn")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Book Return</button>
-              <button onClick={() => runOfficeAction("libraryClearance")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Library Clearance</button>
-              <button onClick={() => runOfficeAction("roomAllocation")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Room Allocation</button>
-              <button onClick={() => runOfficeAction("hostelPayment")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Hostel Payment</button>
-              <button onClick={() => runOfficeAction("hostelClearance")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Hostel Clearance</button>
-              <button onClick={() => runOfficeAction("securityCardProd")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Security ID Prod</button>
-              <button onClick={() => runOfficeAction("securityClearance")} disabled={officeActionLoading || !integrationTargetId} className="border rounded p-2 text-xs">Security Clearance</button>
+            <div className="space-y-3 mb-4">
+              {OFFICE_ACTION_GROUPS.map((group) => (
+                <div key={group.title} className="border rounded p-3">
+                  <div className="text-sm font-semibold text-gray-700 mb-2">{group.title}</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {group.actions.map((action) => (
+                      <button
+                        key={action.id}
+                        onClick={() => runOfficeAction(action.id)}
+                        disabled={officeActionLoading || !targetUserId}
+                        className="border rounded p-2 text-xs"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
 
             {integrationError && <div className="text-sm text-red-600 mb-2">{integrationError}</div>}
@@ -793,17 +910,76 @@ const StaffDashboard = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="border rounded p-3 bg-slate-50">
                 <div className="font-semibold text-sm mb-2">Unified Profile</div>
-                <pre className="text-xs overflow-auto max-h-64">{JSON.stringify(integrationProfile || {}, null, 2)}</pre>
+                {!integrationProfile && <div className="text-xs text-gray-500">No profile loaded.</div>}
+                {integrationProfile && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-gray-600">User ID: {integrationProfile.userId || targetUserId}</div>
+                    {profileSections.map((section) => (
+                      <div key={section.key} className="border rounded p-2 bg-white">
+                        <div className="text-xs font-semibold">{section.label}</div>
+                        <div className="text-xs text-gray-600">Status: {section.value?.status || "n/a"}</div>
+                        <div className="text-xs text-gray-600">Note: {section.value?.note || "-"}</div>
+                      </div>
+                    ))}
+                    <details>
+                      <summary className="text-xs cursor-pointer text-gray-700">Profile technical details</summary>
+                      <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationProfile, null, 2)}</pre>
+                    </details>
+                  </div>
+                )}
               </div>
               <div className="border rounded p-3 bg-slate-50">
                 <div className="font-semibold text-sm mb-2">Recent Transactions</div>
-                <pre className="text-xs overflow-auto max-h-64">{JSON.stringify(integrationTransactions || [], null, 2)}</pre>
+                {integrationTransactions.length === 0 && <div className="text-xs text-gray-500">No transactions found.</div>}
+                <div className="space-y-2 max-h-64 overflow-auto">
+                  {integrationTransactions.map((tx) => (
+                    <div key={tx._id || tx.trackingId} className="border rounded p-2 bg-white">
+                      <div className="text-xs font-semibold">
+                        {(tx.office || "office").toUpperCase()} - {tx.operation || "operation"}
+                      </div>
+                      <div className="text-xs text-gray-600">Status: {tx.status || "-"}</div>
+                      <div className="text-xs text-gray-600">Tracking: {tx.trackingId || "-"}</div>
+                      <div className="text-xs text-gray-600">
+                        Source: {tx.responsePayload?.source || "unknown"} |{" "}
+                        {new Date(tx.createdAt || Date.now()).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <details className="mt-2">
+                  <summary className="text-xs cursor-pointer text-gray-700">Transaction technical details</summary>
+                  <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationTransactions || [], null, 2)}</pre>
+                </details>
               </div>
             </div>
 
             <div className="border rounded p-3 bg-slate-50 mt-3">
               <div className="font-semibold text-sm mb-2">Last Operation Result</div>
-              <pre className="text-xs overflow-auto max-h-64">{JSON.stringify(integrationResult || {}, null, 2)}</pre>
+              {!integrationResult && <div className="text-xs text-gray-500">No operation run yet.</div>}
+              {integrationResult && (
+                <div className="space-y-1">
+                  <div className="text-xs text-gray-700">Tracking ID: {integrationResult.trackingId || "-"}</div>
+                  <div className="text-xs text-gray-700">Transaction Status: {integrationResult.transactionStatus || "-"}</div>
+                  <div className="text-xs text-gray-700">
+                    Source: {integrationResult?.result?.source || integrationResult?.source || "unknown"}
+                  </div>
+                  {integrationResult.result && typeof integrationResult.result === "object" && (
+                    <div className="border rounded p-2 bg-white">
+                      {Object.entries(integrationResult.result)
+                        .filter(([k]) => k !== "source")
+                        .map(([k, v]) => (
+                          <div key={k} className="text-xs text-gray-700">
+                            {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  <details>
+                    <summary className="text-xs cursor-pointer text-gray-700">Full operation details</summary>
+                    <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationResult, null, 2)}</pre>
+                  </details>
+                </div>
+              )}
             </div>
           </div>
 

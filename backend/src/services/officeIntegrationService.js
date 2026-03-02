@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const User = require("../models/User");
 const StudentProfile = require("../models/StudentProfile");
 const OfficeTransaction = require("../models/OfficeTransaction");
+const Ticket = require("../models/Ticket");
 
 const OFFICE_ENDPOINTS = {
   finance: process.env.FINANCE_TX_API_URL || "",
@@ -11,6 +12,8 @@ const OFFICE_ENDPOINTS = {
   hostel: process.env.HOSTEL_TX_API_URL || "",
   security: process.env.SECURITY_TX_API_URL || "",
 };
+const ALLOW_MOCK_INTEGRATIONS = String(process.env.OFFICE_INTEGRATION_ALLOW_MOCK || "false").toLowerCase() === "true";
+const ALLOW_LOCAL_INTEGRATIONS = String(process.env.OFFICE_INTEGRATION_ALLOW_LOCAL || "true").toLowerCase() === "true";
 
 const makeTrackingId = (office, operation) =>
   `${office.toUpperCase()}-${operation.toUpperCase()}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -42,9 +45,177 @@ const asJson = async (response) => {
   }
 };
 
+const statusToBoolean = (status) => status === "cleared" || status === "approved" || status === "active";
+
+const getProfileSnapshot = async (userId) => {
+  const profile = await StudentProfile.findOne({ userId }).lean();
+  return (
+    profile || {
+      feeStatus: { status: "unknown", note: "" },
+      academicStatus: { status: "unknown", note: "" },
+      libraryStatus: { status: "unknown", note: "" },
+      hostelStatus: { status: "unknown", note: "" },
+      securityStatus: { status: "unknown", note: "" },
+      clearanceStatus: { status: "unknown", note: "" },
+    }
+  );
+};
+
+const getLatestTx = async (userId, office, operation) =>
+  OfficeTransaction.findOne({ userId, office, operation, status: "success" }).sort({ createdAt: -1 }).lean();
+
+const getCompletedCountByService = async (userId, serviceType) =>
+  Ticket.countDocuments({ userId, serviceType, status: "completed" });
+
+const getLocalIntegrationResult = async ({ office, path, payload }) => {
+  const userId = payload?.userId;
+  const profile = await getProfileSnapshot(userId);
+  const user = await User.findById(userId).lean();
+
+  if (office === "finance" && path === "/fees/balance") {
+    const lastBalanceTx = await getLatestTx(userId, "finance", "fee_balance_lookup");
+    const lastVerifyTx = await getLatestTx(userId, "finance", "fee_clearance_verification");
+    const lastPaidTx = await getLatestTx(userId, "finance", "payment_processing");
+    const derivedCleared =
+      Boolean(lastVerifyTx?.responsePayload?.cleared) ||
+      profile.feeStatus?.status === "cleared" ||
+      profile.clearanceStatus?.status === "cleared";
+    const feeBalance = derivedCleared ? 0 : Number(lastBalanceTx?.responsePayload?.feeBalance ?? 0);
+    return {
+      source: "local",
+      feeBalance,
+      currency: "KES",
+      clearanceEligible: feeBalance <= 0,
+      lastPaymentReceipt: lastPaidTx?.responsePayload?.receiptNumber || null,
+    };
+  }
+
+  if (office === "finance" && path === "/fees/clearance/verify") {
+    const outstanding = profile.feeStatus?.status === "pending";
+    return {
+      source: "local",
+      cleared: !outstanding,
+    };
+  }
+
+  if (office === "finance" && path === "/payments/collect") {
+    return {
+      source: "local",
+      paymentStatus: "confirmed",
+      providerReference: `LOCAL-PAY-${Date.now()}`,
+      receiptNumber: `LOCAL-RCPT-${Date.now()}`,
+    };
+  }
+
+  if (office === "registry" && path === "/transcripts/requests") {
+    return {
+      source: "local",
+      status: "queued",
+      transcriptRequestId: `LOCAL-TR-${Date.now()}`,
+    };
+  }
+
+  if (office === "registry" && path === "/exam-cards/generate") {
+    const examsCompleted = await getCompletedCountByService(userId, "Examinations");
+    const generated = examsCompleted > 0 || statusToBoolean(profile.academicStatus?.status);
+    return {
+      source: "local",
+      generated,
+      examCardUrl: generated ? `/student/exam-card/${userId}` : null,
+    };
+  }
+
+  if (office === "registry" && path === "/units/registration/verify") {
+    const hasStudentRecordsActivity = (await getCompletedCountByService(userId, "Student Records")) > 0;
+    return {
+      source: "local",
+      verified: hasStudentRecordsActivity || statusToBoolean(profile.academicStatus?.status),
+    };
+  }
+
+  if (office === "registry" && path === "/graduation/clearance/status") {
+    const status = statusToBoolean(profile.clearanceStatus?.status) ? "approved" : "in_progress";
+    return { source: "local", graduationStatus: status };
+  }
+
+  if (office === "registry" && path === "/students/academic-status") {
+    const status = statusToBoolean(profile.academicStatus?.status) ? "good_standing" : "pending_requirements";
+    return { source: "local", status };
+  }
+
+  if (office === "ict" && path === "/support/portal-issues") {
+    return { source: "local", ticketId: `LOCAL-ICT-${Date.now()}`, status: "opened" };
+  }
+
+  if (office === "ict" && path === "/support/password-reset") {
+    return { source: "local", resetStatus: "completed" };
+  }
+
+  if (office === "ict" && path === "/id-cards/status") {
+    const status = profile.securityStatus?.status === "cleared" ? "ready" : "processing";
+    return { source: "local", idCardStatus: status };
+  }
+
+  if (office === "ict" && path === "/email/activation-status") {
+    return { source: "local", activated: Boolean(user?.email) };
+  }
+
+  if (office === "library" && path === "/fines/balance") {
+    const pending = profile.libraryStatus?.status === "pending";
+    return { source: "local", fineBalance: pending ? 500 : 0 };
+  }
+
+  if (office === "library" && path === "/books/return-status") {
+    return { source: "local", allReturned: profile.libraryStatus?.status !== "pending" };
+  }
+
+  if (office === "library" && path === "/clearance/approve") {
+    return { source: "local", approved: true };
+  }
+
+  if (office === "hostel" && path === "/rooms/allocation") {
+    const allocated = profile.hostelStatus?.status === "cleared" || profile.hostelStatus?.status === "processing";
+    return { source: "local", roomNumber: allocated ? "A-101" : "", allocated };
+  }
+
+  if (office === "hostel" && path === "/payments/verify") {
+    const verified = profile.hostelStatus?.status !== "pending";
+    return { source: "local", verified };
+  }
+
+  if (office === "hostel" && path === "/clearance/confirm") {
+    return { source: "local", confirmed: true };
+  }
+
+  if (office === "security" && path === "/id-cards/production-status") {
+    const status = profile.securityStatus?.status === "cleared" ? "ready_for_pickup" : "printing";
+    return { source: "local", status };
+  }
+
+  if (office === "security" && path === "/id-cards/lost") {
+    return { source: "local", reportId: `LOCAL-LOSS-${Date.now()}`, status: "filed" };
+  }
+
+  if (office === "security" && path === "/graduation/clearance/approve") {
+    return { source: "local", approved: true };
+  }
+
+  return { source: "local", status: "ok" };
+};
+
 const callExternalSystem = async ({ office, path, method = "POST", payload = {}, mockFactory }) => {
   const baseUrl = OFFICE_ENDPOINTS[office];
   if (!baseUrl || typeof fetch !== "function") {
+    if (ALLOW_LOCAL_INTEGRATIONS) {
+      return getLocalIntegrationResult({ office, path, method, payload });
+    }
+    if (!ALLOW_MOCK_INTEGRATIONS) {
+      const error = new Error(
+        `Integration endpoint for '${office}' is not configured. Set ${office.toUpperCase()}_TX_API_URL, or enable OFFICE_INTEGRATION_ALLOW_LOCAL=true / OFFICE_INTEGRATION_ALLOW_MOCK=true.`
+      );
+      error.status = 503;
+      throw error;
+    }
     return {
       source: "mock",
       ...mockFactory(),
@@ -561,4 +732,3 @@ const officeIntegrationService = {
 };
 
 module.exports = officeIntegrationService;
-
