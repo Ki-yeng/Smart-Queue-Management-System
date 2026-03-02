@@ -42,3 +42,10 @@ export const getHourlyPeak = async () => {
   });
   return res.data?.data || [];
 };
+
+export const getOperationalMetrics = async () => {
+  const res = await axios.get(`${API_URL}/operational-metrics`, {
+    headers: authHeaders(),
+  });
+  return res.data?.data || {};
+};

@@ -41,6 +41,7 @@ const STATUS_BADGE = {
   completed: { label: "Completed", className: "bg-green-100 text-green-800" },
   transferred: { label: "Transferred", className: "bg-purple-100 text-purple-800" },
   cancelled: { label: "Cancelled", className: "bg-red-100 text-red-800" },
+  no_show: { label: "No Show", className: "bg-rose-100 text-rose-800" },
 };
 
 const sameId = (a, b) => String(a || "") === String(b || "");
@@ -58,7 +59,6 @@ const StaffDashboard = () => {
   const [allTickets, setAllTickets] = useState([]);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [staffNote, setStaffNote] = useState("");
-  const [socketState, setSocketState] = useState("connecting");
   const [officeActionLoading, setOfficeActionLoading] = useState(false);
   const [integrationTargetId, setIntegrationTargetId] = useState("");
   const [integrationResult, setIntegrationResult] = useState(null);
@@ -131,18 +131,12 @@ const StaffDashboard = () => {
   }, [filterService, statusFilter, complaintStatusFilter]);
 
   useEffect(() => {
-    const onConnect = () => setSocketState("connected");
-    const onDisconnect = () => setSocketState("disconnected");
-    const onConnectError = () => setSocketState("error");
     const onRealtimeUpdate = () => {
       fetchQueue();
       fetchTickets();
       fetchDashboardStats();
     };
 
-    socket.on("connect", onConnect);
-    socket.on("disconnect", onDisconnect);
-    socket.on("connect_error", onConnectError);
     socket.on("ticketCreated", onRealtimeUpdate);
     socket.on("ticketServing", onRealtimeUpdate);
     socket.on("ticketCompleted", onRealtimeUpdate);
@@ -150,16 +144,7 @@ const StaffDashboard = () => {
     socket.on("ticketTransferred", onRealtimeUpdate);
     socket.on("queueUpdated", onRealtimeUpdate);
 
-    if (socket.connected) {
-      setSocketState("connected");
-    } else {
-      setSocketState("connecting");
-    }
-
     return () => {
-      socket.off("connect", onConnect);
-      socket.off("disconnect", onDisconnect);
-      socket.off("connect_error", onConnectError);
       socket.off("ticketCreated", onRealtimeUpdate);
       socket.off("ticketServing", onRealtimeUpdate);
       socket.off("ticketCompleted", onRealtimeUpdate);
@@ -540,28 +525,6 @@ const StaffDashboard = () => {
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-3 flex justify-end">
-            <div className="mr-3 flex items-center gap-2">
-              <span
-                className={`text-xs px-2 py-1 rounded-full ${
-                  socketState === "connected"
-                    ? "bg-green-100 text-green-700"
-                    : socketState === "connecting"
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-red-100 text-red-700"
-                }`}
-              >
-                Socket: {socketState}
-              </span>
-              {socketState !== "connected" && (
-                <button
-                  type="button"
-                  onClick={() => socket.connect()}
-                  className="text-xs border border-gray-300 px-2 py-1 rounded"
-                >
-                  Reconnect
-                </button>
-              )}
-            </div>
             <button
               type="button"
               onClick={async () => {
@@ -588,7 +551,7 @@ const StaffDashboard = () => {
               <option>Accommodation</option>
             </select>
 
-            <div className="space-y-2 max-h-[48vh] overflow-auto">
+            <div className="space-y-2 max-h-[55vh] overflow-auto">
               {queueError && <div className="text-sm text-red-600">{queueError}</div>}
               {!queue.length && (
                 <div className="text-sm text-gray-500">No waiting tickets</div>
@@ -712,6 +675,10 @@ const StaffDashboard = () => {
               <div className="mt-3 text-sm text-gray-500">Peak hour: {dashboardStats?.peakHour || "-"}</div>
               <div className="mt-3 text-sm text-gray-500">Total tickets served: {totalTicketsServed}</div>
             </div>
+            <div className="mt-4 border-t pt-4">
+              <h4 className="font-semibold mb-2 text-sm">Manual Registration</h4>
+              <ManualRegistration onRegistered={fetchQueue} />
+            </div>
           </div>
 
           <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
@@ -726,7 +693,7 @@ const StaffDashboard = () => {
                 <option value="cancelled">Cancelled</option>
               </select>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1">
               {allTickets.length === 0 && <div className="text-sm text-gray-500">No tickets</div>}
               {allTickets.map((t) => {
                 const badge = STATUS_BADGE[t.status] || STATUS_BADGE.waiting;
@@ -774,7 +741,7 @@ const StaffDashboard = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
+          <div className="bg-white rounded-xl shadow p-4 lg:col-span-2 max-h-[75vh] overflow-y-auto">
             <h3 className="font-bold mb-3">Office Integration Center</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
               <input
@@ -840,12 +807,7 @@ const StaffDashboard = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
-            <h3 className="font-bold mb-2">Manual Registration & Quick Actions</h3>
-            <ManualRegistration onRegistered={fetchQueue} />
-          </div>
-
-          <div className="bg-white rounded-xl shadow p-4 lg:col-span-3">
+          <div className="bg-white rounded-xl shadow p-4 lg:col-span-1 max-h-[75vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold">Complaint Lifecycle Tracking</h3>
               <select

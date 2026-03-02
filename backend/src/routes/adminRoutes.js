@@ -5,6 +5,7 @@ const {
   getAverageWaitTime,
   getStaffPerformance,
   getHourlyPeak,
+  getOperationalMetrics,
 } = require("../controllers/adminDashboardController");
 const { protect, adminOnly } = require("../middleware/authMiddleware");
 
@@ -17,5 +18,6 @@ router.get("/department-stats", getDepartmentStats);
 router.get("/average-wait-time", getAverageWaitTime);
 router.get("/staff-performance", getStaffPerformance);
 router.get("/hourly-peak", getHourlyPeak);
+router.get("/operational-metrics", getOperationalMetrics);
 
 module.exports = router;

@@ -15,6 +15,7 @@ import {
   getAverageWaitTime,
   getDepartmentStats,
   getHourlyPeak,
+  getOperationalMetrics,
   getStaffPerformance,
   getTicketsPerDay,
 } from "../services/adminService";
@@ -46,6 +47,7 @@ const AdminDashboard = () => {
   const [averageWaitTime, setAverageWaitTime] = useState([]);
   const [staffPerformance, setStaffPerformance] = useState([]);
   const [hourlyPeak, setHourlyPeak] = useState([]);
+  const [operationalMetrics, setOperationalMetrics] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -53,12 +55,13 @@ const AdminDashboard = () => {
     setLoading(true);
     setError("");
     try {
-      const [perDay, dept, wait, staff, hourly] = await Promise.all([
+      const [perDay, dept, wait, staff, hourly, ops] = await Promise.all([
         getTicketsPerDay(),
         getDepartmentStats(),
         getAverageWaitTime(),
         getStaffPerformance(),
         getHourlyPeak(),
+        getOperationalMetrics(),
       ]);
 
       setTicketsPerDay(perDay);
@@ -66,6 +69,7 @@ const AdminDashboard = () => {
       setAverageWaitTime(wait);
       setStaffPerformance(staff);
       setHourlyPeak(hourly);
+      setOperationalMetrics(ops || {});
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load admin dashboard data");
     } finally {
@@ -162,6 +166,8 @@ const AdminDashboard = () => {
           <KpiCard label="Total Tickets (All Time)" value={summary.totalTickets} />
           <KpiCard label="Pending Tickets" value={summary.pending} />
           <KpiCard label="Average Wait" value={summary.avgWaitAll} />
+          <KpiCard label="Pending Approvals" value={operationalMetrics.pendingApprovals || 0} />
+          <KpiCard label="No-Show Rate" value={`${operationalMetrics.noShowRate || 0}%`} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

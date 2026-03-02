@@ -310,6 +310,63 @@ exports.getCurrentUser = async (req, res) => {
   }
 };
 
+// Update current user profile (students/customers)
+exports.updateCurrentUserProfile = async (req, res) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const allowedYears = ["First Year", "Second Year", "Third Year", "Final Year", "Postgraduate"];
+    const { name, registrationNumber, program, course, studentYear } = req.body || {};
+
+    if (studentYear && !allowedYears.includes(studentYear)) {
+      return res.status(400).json({
+        message: `Invalid student year. Allowed values: ${allowedYears.join(", ")}`,
+      });
+    }
+
+    const updates = {};
+    if (typeof name === "string") updates.name = name.trim();
+    if (typeof registrationNumber === "string") updates.registrationNumber = registrationNumber.trim();
+    if (typeof program === "string") updates.program = program.trim();
+    if (typeof course === "string") updates.course = course.trim();
+    if (typeof studentYear === "string" || studentYear === null) updates.studentYear = studentYear;
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ message: "No valid profile fields provided." });
+    }
+
+    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true, runValidators: true }).select("-password");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department || null,
+        registrationNumber: user.registrationNumber || null,
+        studentNumber: user.registrationNumber || null,
+        program: user.program || user.course || null,
+        course: user.course || user.program || null,
+        studentYear: user.studentYear || null,
+      },
+    });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    if (err?.name === "ValidationError") {
+      return res.status(400).json({ message: err.message });
+    }
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 // Refresh access token using refresh token
 exports.refreshAccessToken = async (req, res) => {
   try {

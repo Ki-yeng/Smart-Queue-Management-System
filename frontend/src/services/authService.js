@@ -85,3 +85,20 @@ export const getCurrentUser = async () => {
     return stored ? JSON.parse(stored) : null;
   }
 };
+
+// Update current user profile
+export const updateCurrentUser = async (payload) => {
+  const token = localStorage.getItem("token");
+  if (!token) throw new Error("Not authenticated");
+
+  const response = await axios.put(`${API_URL}/me`, payload, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const updatedUser = response.data?.user || null;
+  if (updatedUser) {
+    localStorage.setItem("user", JSON.stringify(updatedUser));
+  }
+
+  return response.data;
+};

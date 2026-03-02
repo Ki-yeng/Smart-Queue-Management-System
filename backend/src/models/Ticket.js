@@ -35,7 +35,7 @@ const ticketSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["waiting", "serving", "completed", "on_hold", "cancelled", "transferred"],
+      enum: ["waiting", "serving", "completed", "on_hold", "cancelled", "transferred", "no_show"],
       default: "waiting",
     },
 
@@ -134,11 +134,38 @@ const ticketSchema = new mongoose.Schema(
       ref: "Counter",
       default: null,
     },
+
+    // Virtual queue check-in/no-show workflow
+    checkInRequired: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    checkedInAt: {
+      type: Date,
+      default: null,
+    },
+    nearTurnNotifiedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    noShowAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
   },
   {
     timestamps: true, // createdAt, updatedAt
   }
 );
+
+// Basic performance hardening indexes for high-frequency dashboard and queue queries.
+ticketSchema.index({ status: 1 });
+ticketSchema.index({ serviceType: 1 });
+ticketSchema.index({ createdAt: -1 });
+ticketSchema.index({ status: 1, serviceType: 1, createdAt: -1 });
 
 // Keep legacy and new analytics fields aligned.
 ticketSchema.pre("validate", function syncFields() {

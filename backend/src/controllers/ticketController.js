@@ -5,6 +5,7 @@ const User = require("../models/User");
 const { calculatePriorityScore, determinePriorityLevel, sortByPriority } = require("../utils/priorityHelper");
 const { findBestCounterForTicket } = require("../utils/loadBalancer");
 const { updateCounterMetricsOnCompletion } = require("../utils/metricsCalculator");
+const { notifyNearTurnForService } = require("../utils/queueAutomation");
 const Clearance = require("../models/Clearance");
 const {
   emitTicketCreated,
@@ -230,6 +231,7 @@ exports.createTicket = async (req, res) => {
     if (io) {
       emitTicketCreated(io, ticket);
       emitQueueUpdated(io, ticket.serviceType);
+      await notifyNearTurnForService(io, ticket.serviceType);
     }
 
     res.status(201).json({ 
@@ -619,6 +621,7 @@ exports.serveTicket = async (req, res) => {
           message: "Your ticket is now being served",
         });
       }
+      await notifyNearTurnForService(io, ticket.serviceType);
     }
 
     res.json({
@@ -675,6 +678,7 @@ exports.completeTicket = async (req, res) => {
         emitCounterMetricsUpdated(io, updatedCounter);
       }
       emitQueueUpdated(io, ticket.serviceType);
+      await notifyNearTurnForService(io, ticket.serviceType);
     }
 
     res.json({ message: "Ticket completed", ticket });
@@ -719,12 +723,47 @@ exports.holdTicket = async (req, res) => {
         emitCounterStatusChanged(io, updatedCounter, "busy", "Ticket put on hold");
       }
       emitQueueUpdated(io, ticket.serviceType);
+      await notifyNearTurnForService(io, ticket.serviceType);
     }
 
     res.json({ message: "Ticket put on hold", ticket });
   } catch (err) {
     console.error("Hold ticket error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * Check-in confirmation for virtual queue (near-turn flow)
+ */
+exports.checkInTicket = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    const isOwner = ticket.userId && req.user?._id && String(ticket.userId) === String(req.user._id);
+    const isStaff = ["staff", "admin"].includes(req.user?.role);
+    if (!isOwner && !isStaff) {
+      return res.status(403).json({ message: "Forbidden: you can only check in your own ticket" });
+    }
+
+    if (ticket.status !== "waiting") {
+      return res.status(400).json({ message: `Cannot check in ticket with status ${ticket.status}` });
+    }
+
+    if (!ticket.checkInRequired) {
+      return res.status(400).json({ message: "Check-in not required for this ticket yet" });
+    }
+
+    ticket.checkedInAt = new Date();
+    ticket.checkInRequired = false;
+    await ticket.save();
+
+    return res.json({ message: "Checked in successfully", ticket });
+  } catch (err) {
+    console.error("Check-in ticket error:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
@@ -763,6 +802,7 @@ exports.cancelTicket = async (req, res) => {
     if (io) {
       emitTicketCancelled(io, ticket);
       emitQueueUpdated(io, ticket.serviceType);
+      await notifyNearTurnForService(io, ticket.serviceType);
     }
 
     res.json({ message: "Ticket cancelled successfully", ticket });
@@ -844,6 +884,8 @@ if (oldTicket.counterId) {
 
       emitQueueUpdated(io, oldTicket.serviceType);
       emitQueueUpdated(io, newTicket.serviceType);
+      await notifyNearTurnForService(io, oldTicket.serviceType);
+      await notifyNearTurnForService(io, newTicket.serviceType);
     }
 
     res.json({

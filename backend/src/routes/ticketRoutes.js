@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const ticketController = require("../controllers/ticketController");
-const { protect, staffOnly } = require("../middleware/authMiddleware");
+const { protect, staffOnly, customerOrStaff } = require("../middleware/authMiddleware");
 
 // Create a new ticket (student)
 router.post("/", ticketController.createTicket);
@@ -24,6 +24,9 @@ router.get("/next/:serviceType", ticketController.getNextTicket);
 
 // Get ticket by ID
 router.get("/:id", ticketController.getTicketById);
+
+// Virtual queue check-in
+router.put("/check-in/:id", protect, customerOrStaff, ticketController.checkInTicket);
 
 // Serve ticket
 router.put("/serve/:id", protect, staffOnly, ticketController.serveTicket);

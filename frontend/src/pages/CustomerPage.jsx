@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   cancelTicket,
+  checkInTicket,
   createTicket,
   getLatestTicket,
   getNextTicket,
@@ -20,6 +21,7 @@ const STATUS_CONFIG = {
   completed: { label: "Completed", color: "#22c55e" },
   transferred: { label: "Transferred", color: "#a855f7" },
   cancelled: { label: "Cancelled", color: "#ef4444" },
+  no_show: { label: "No Show", color: "#dc2626" },
 };
 
 const announcements = [
@@ -63,6 +65,8 @@ const getProgram = (user) => user?.program || user?.course || user?.department |
 
 const getYear = (user) => user?.studentYear || user?.year || user?.yearOfStudy || "";
 
+const getQueueDisplayStatus = (status) => (status === "open" ? "active" : "closed");
+
 const applyQueueMetrics = (ticketData, overview) => {
   if (!ticketData) return ticketData;
   const service = (overview || []).find((q) => q.serviceType === ticketData.serviceType);
@@ -84,6 +88,7 @@ const CustomerPage = () => {
   const [ticketStatus, setTicketStatus] = useState("");
   const [loadingTicket, setLoadingTicket] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [nearTurnAlert, setNearTurnAlert] = useState("");
   const [clearance, setClearance] = useState({});
   const [selectedAction, setSelectedAction] = useState(SMART_ACTIONS[0]);
   const [queueOverview, setQueueOverview] = useState([]);
@@ -214,6 +219,27 @@ const CustomerPage = () => {
         },
         ...prev,
       ]);
+    });
+
+    socketRef.current.on("nearTurnNotification", (data) => {
+      setNearTurnAlert(data?.message || "Your turn is near.");
+      setNotifications((prev) => [{ message: data?.message || "Your turn is near.", time: new Date() }, ...prev]);
+      if (data?.ticketId && ticket && String(ticket._id) === String(data.ticketId)) {
+        setTicket((prev) =>
+          prev
+            ? {
+                ...prev,
+                checkInRequired: Boolean(data.checkInRequired),
+              }
+            : prev
+        );
+      }
+    });
+
+    socketRef.current.on("ticketNoShow", (data) => {
+      setNotifications((prev) => [{ message: data?.message || "Ticket marked as no-show", time: new Date() }, ...prev]);
+      setTicketStatus("no_show");
+      setTicket((prev) => (prev ? { ...prev, status: "no_show" } : prev));
     });
 
     return () => socketRef.current && socketRef.current.disconnect();
@@ -373,6 +399,19 @@ const CustomerPage = () => {
     }
   };
 
+  const handleCheckIn = async () => {
+    if (!ticket?._id) return;
+    try {
+      await checkInTicket(ticket._id, token);
+      setTicket((prev) => (prev ? { ...prev, checkInRequired: false, checkedInAt: new Date().toISOString() } : prev));
+      setNearTurnAlert("Checked in successfully.");
+      setNotifications((prev) => [{ message: "Checked in successfully.", time: new Date() }, ...prev]);
+    } catch (err) {
+      console.error("Check-in failed:", err);
+      alert(err?.response?.data?.message || "Failed to check in");
+    }
+  };
+
   const handleUpload = async () => {
     if (!uploadFiles.length || !user) return;
     const userId = getUserId(user);
@@ -498,105 +537,6 @@ const CustomerPage = () => {
                 </button>
               ))}
             </div>
-          </div>
-
-          <div ref={ticketPanelRef}>
-            <div className="bg-white p-4 rounded-xl shadow mb-6">
-              <h3 className="font-bold text-xl mb-3">Ticket</h3>
-
-              {ticket && ticket.status !== "completed" && ticket.status !== "cancelled" && (
-                <button onClick={handleCancelTicket} className="w-full bg-red-600 text-white py-2 rounded mb-3">
-                  Cancel Active Ticket
-                </button>
-              )}
-
-              <button
-                onClick={handleGenerateTicket}
-                disabled={loadingTicket || !eligibility.eligible}
-                className="w-full bg-[#182B5C] text-white py-3 rounded font-bold mb-2 disabled:opacity-50"
-                title={eligibility.reason}
-              >
-                {loadingTicket
-                  ? "Joining..."
-                  : eligibility.eligible
-                  ? `Join ${SMART_ROUTING[selectedAction.id]} Queue`
-                  : "Resolve Fees First"}
-              </button>
-
-              {!eligibility.eligible && (
-                <div className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
-                  {eligibility.reason}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedAction(SMART_ACTIONS.find((a) => a.id === eligibility.suggestedActionId) || SMART_ACTIONS[0])
-                    }
-                    className="ml-2 text-blue-700 underline"
-                  >
-                    Switch to Finance action
-                  </button>
-                </div>
-              )}
-
-              {!ticket && <p className="text-gray-500">No active ticket</p>}
-
-              {ticket && (
-                <div className="bg-[#F7F9FF] p-3 rounded">
-                  <div className="font-bold">Ticket #{ticket.ticketNumber}</div>
-                  <div>
-                    Status:{" "}
-                    <span style={{ color: STATUS_CONFIG[ticketStatus]?.color || "#000", fontWeight: "bold" }}>
-                      {STATUS_CONFIG[ticketStatus]?.label || ticketStatus}
-                    </span>
-                  </div>
-                  <div>People ahead: {ticket.peopleAhead ?? "-"}</div>
-                  <div>Estimated wait: {ticket.estimatedWait ?? "-"} mins</div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button onClick={downloadQrTicket} className="text-sm bg-gray-900 text-white px-3 py-1 rounded">
-                      Download QR Ticket
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white p-4 rounded-xl shadow h-48 overflow-y-auto">
-              <h3 className="font-bold text-xl mb-2">Notifications</h3>
-              {notifications.length === 0 && <p className="text-sm">No notifications</p>}
-              {notifications.map((n, i) => (
-                <div key={i} className="text-sm">
-                  {n.message}
-                </div>
-              ))}
-              <div ref={notificationsEndRef} />
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-1">Central Queue Overview</h3>
-              <p className="text-xs text-gray-500 mb-3">Reference only. It helps you compare queue pressure across departments.</p>
-              <div className="space-y-2">
-                {queueOverview.length === 0 && <div className="text-sm text-gray-500">Queue data unavailable</div>}
-                {queueOverview.map((q) => (
-                  <div key={q.serviceType} className="flex items-center justify-between border rounded p-2">
-                    <div>
-                      <div className="font-semibold">{q.serviceType}</div>
-                      <div className="text-xs text-gray-500">
-                        {q.waiting} waiting | {q.estimatedWaitMins} mins
-                      </div>
-                    </div>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                        q.status === "open" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {q.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
 
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Feedback, Rating & Complaints</h3>
@@ -691,7 +631,87 @@ const CustomerPage = () => {
             </div>
           </div>
 
-          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div ref={ticketPanelRef} className="space-y-6">
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-bold text-xl mb-3">Ticket</h3>
+
+              {ticket && ticket.status !== "completed" && ticket.status !== "cancelled" && (
+                <button onClick={handleCancelTicket} className="w-full bg-red-600 text-white py-2 rounded mb-3">
+                  Cancel Active Ticket
+                </button>
+              )}
+
+              <button
+                onClick={handleGenerateTicket}
+                disabled={loadingTicket || !eligibility.eligible}
+                className="w-full bg-[#182B5C] text-white py-3 rounded font-bold mb-2 disabled:opacity-50"
+                title={eligibility.reason}
+              >
+                {loadingTicket
+                  ? "Joining..."
+                  : eligibility.eligible
+                  ? `Join ${SMART_ROUTING[selectedAction.id]} Queue`
+                  : "Resolve Fees First"}
+              </button>
+
+              {!eligibility.eligible && (
+                <div className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
+                  {eligibility.reason}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedAction(SMART_ACTIONS.find((a) => a.id === eligibility.suggestedActionId) || SMART_ACTIONS[0])
+                    }
+                    className="ml-2 text-blue-700 underline"
+                  >
+                    Switch to Finance action
+                  </button>
+                </div>
+              )}
+
+              {!ticket && <p className="text-gray-500">No active ticket</p>}
+
+              {ticket && (
+                <div className="bg-[#F7F9FF] p-3 rounded">
+                  <div className="font-bold">Ticket #{ticket.ticketNumber}</div>
+                  <div>
+                    Status:{" "}
+                    <span style={{ color: STATUS_CONFIG[ticketStatus]?.color || "#000", fontWeight: "bold" }}>
+                      {STATUS_CONFIG[ticketStatus]?.label || ticketStatus}
+                    </span>
+                  </div>
+                  <div>People ahead: {ticket.peopleAhead ?? "-"}</div>
+                  <div>Estimated wait: {ticket.estimatedWait ?? "-"} mins</div>
+                  {nearTurnAlert && (
+                    <div className="mt-2 text-xs bg-amber-100 text-amber-800 border border-amber-300 rounded p-2">
+                      {nearTurnAlert}
+                    </div>
+                  )}
+                  {ticket.checkInRequired && ticket.status === "waiting" && (
+                    <button onClick={handleCheckIn} className="mt-2 text-sm bg-amber-500 text-white px-3 py-1 rounded">
+                      Check In Now
+                    </button>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button onClick={downloadQrTicket} className="text-sm bg-gray-900 text-white px-3 py-1 rounded">
+                      Download QR Ticket
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow h-48 overflow-y-auto">
+              <h3 className="font-bold text-xl mb-2">Notifications</h3>
+              {notifications.length === 0 && <p className="text-sm">No notifications</p>}
+              {notifications.map((n, i) => (
+                <div key={i} className="text-sm">
+                  {n.message}
+                </div>
+              ))}
+              <div ref={notificationsEndRef} />
+            </div>
+
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Ticket History</h3>
               {ticketHistory.length === 0 && <div className="text-sm text-gray-500">No ticket history yet</div>}
@@ -711,7 +731,9 @@ const CustomerPage = () => {
               <h3 className="font-bold text-xl mb-2">Announcements</h3>
               {announcements[announcementIndex]}
             </div>
+          </div>
 
+          <div className="space-y-6">
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Self-Service & Uploads</h3>
               <div className="space-y-3">
@@ -756,6 +778,31 @@ const CustomerPage = () => {
                     Profile
                   </a>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-bold text-xl mb-1">Central Queue Overview</h3>
+              <p className="text-xs text-gray-500 mb-3">Reference only. It helps you compare queue pressure across departments.</p>
+              <div className="space-y-2">
+                {queueOverview.length === 0 && <div className="text-sm text-gray-500">Queue data unavailable</div>}
+                {queueOverview.map((q) => (
+                  <div key={q.serviceType} className="flex items-center justify-between border rounded p-2">
+                    <div>
+                      <div className="font-semibold">{q.serviceType}</div>
+                      <div className="text-xs text-gray-500">
+                        {q.waiting} waiting | {q.estimatedWaitMins} mins
+                      </div>
+                    </div>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                        q.status === "open" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {getQueueDisplayStatus(q.status)}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

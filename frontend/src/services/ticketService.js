@@ -131,3 +131,15 @@ export const cancelTicket = async (id) => {
     return null;
   }
 };
+
+export const checkInTicket = async (id, token) => {
+  token = token || localStorage.getItem("token");
+  const res = await axios.put(
+    `${API_URL}/check-in/${id}`,
+    {},
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }
+  );
+  return res.data || null;
+};

@@ -1,6 +1,7 @@
 const Ticket = require("../models/Ticket");
 const Counter = require("../models/Counter");
 const User = require("../models/User");
+const OfficeTransaction = require("../models/OfficeTransaction");
 const { getMetricsSummary } = require("../utils/metricsCalculator");
 
 /**
@@ -36,6 +37,13 @@ exports.getDashboardStats = async (req, res) => {
     const cancelledTickets = await Ticket.countDocuments({
       status: "cancelled",
       cancelledAt: { $gte: today },
+    });
+    const noShowTickets = await Ticket.countDocuments({
+      status: "no_show",
+      noShowAt: { $gte: today },
+    });
+    const pendingApprovals = await OfficeTransaction.countDocuments({
+      status: { $in: ["initiated", "processing"] },
     });
 
     const totalQueueLength = waitingTickets + servingTickets;
@@ -225,6 +233,10 @@ exports.getDashboardStats = async (req, res) => {
       totalTicketsToday > 0
         ? Math.round((completedTickets / totalTicketsToday) * 100)
         : 0;
+    const noShowRate =
+      totalTicketsToday > 0
+        ? Math.round((noShowTickets / totalTicketsToday) * 100)
+        : 0;
 
     // ===== COMPILE DASHBOARD DATA =====
     const dashboard = {
@@ -233,6 +245,8 @@ exports.getDashboardStats = async (req, res) => {
         totalTicketsToday,
         totalQueueLength,
         completionRate: `${completionRate}%`,
+        noShowRate: `${noShowRate}%`,
+        pendingApprovals,
         avgWaitingTime: Math.round(avgWaitingTime / 60), // Convert to minutes
         avgServiceTime: Math.round(avgServiceTime / 60), // Convert to minutes
       },
@@ -242,7 +256,9 @@ exports.getDashboardStats = async (req, res) => {
         serving: servingTickets,
         completed: completedTickets,
         cancelled: cancelledTickets,
+        noShow: noShowTickets,
         completionRate,
+        noShowRate,
       },
       counters: {
         total: totalCounters,

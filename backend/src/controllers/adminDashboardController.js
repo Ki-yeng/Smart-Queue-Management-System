@@ -1,4 +1,5 @@
 const Ticket = require("../models/Ticket");
+const OfficeTransaction = require("../models/OfficeTransaction");
 
 const getStartOfDay = (date) => {
   const d = new Date(date);
@@ -239,5 +240,33 @@ exports.getHourlyPeak = async (req, res) => {
   } catch (err) {
     console.error("getHourlyPeak error:", err);
     res.status(500).json({ message: "Failed to load hourly peak data" });
+  }
+};
+
+exports.getOperationalMetrics = async (req, res) => {
+  try {
+    const today = getStartOfDay(new Date());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const [totalToday, noShowToday, pendingApprovals] = await Promise.all([
+      Ticket.countDocuments({ createdAt: { $gte: today, $lt: tomorrow } }),
+      Ticket.countDocuments({ status: "no_show", noShowAt: { $gte: today, $lt: tomorrow } }),
+      OfficeTransaction.countDocuments({ status: { $in: ["initiated", "processing"] } }),
+    ]);
+
+    const noShowRate = totalToday > 0 ? Math.round((noShowToday / totalToday) * 100) : 0;
+
+    res.json({
+      data: {
+        totalToday,
+        noShowToday,
+        noShowRate,
+        pendingApprovals,
+      },
+    });
+  } catch (err) {
+    console.error("getOperationalMetrics error:", err);
+    res.status(500).json({ message: "Failed to load operational metrics" });
   }
 };

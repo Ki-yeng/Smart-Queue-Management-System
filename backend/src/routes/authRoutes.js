@@ -14,6 +14,7 @@ router.post("/refresh", authController.refreshAccessToken);
 
 // Get current user (protected)
 router.get("/me", protect, authController.getCurrentUser);
+router.put("/me", protect, authController.updateCurrentUserProfile);
 
 // Logout (protected - requires authentication)
 router.post("/logout", protect, authController.logout);

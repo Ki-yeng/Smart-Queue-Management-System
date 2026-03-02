@@ -6,6 +6,7 @@ const cors = require("cors");
 const http = require("http");
 const { Server } = require("socket.io");
 const { startLoadBalancingMonitor } = require("./utils/loadBalancer");
+const { startNoShowMonitor } = require("./utils/queueAutomation");
 const socketEvents = require("./utils/socketEvents");
 const path = require("path");
 
@@ -628,6 +629,13 @@ try {
     );
   } catch (err) {
     console.error("⚠️  Load balancing monitor failed:", err.message);
+  }
+
+  try {
+    startNoShowMonitor(io, 60000);
+    console.log("⏱️  No-show monitor started (checks every 60 seconds)");
+  } catch (err) {
+    console.error("⚠️  No-show monitor failed:", err.message);
   }
 
 } catch (err) {
