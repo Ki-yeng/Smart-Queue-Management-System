@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { getCounters, addCounter, removeCounter } from "../../services/adminService";
+import { createCounter, getCounters, updateStatus } from "../../services/counterService";
 
 const CounterManager = () => {
   const [counters, setCounters] = useState([]);
-  const [name, setName] = useState("");
-  const [service, setService] = useState("");
+  const [counterName, setCounterName] = useState("");
+  const [serviceType, setServiceType] = useState("Admissions");
+  const [saving, setSaving] = useState(false);
 
   const loadCounters = async () => {
     try {
       const data = await getCounters();
-      setCounters(data);
+      setCounters(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to load counters", err);
     }
@@ -20,70 +21,93 @@ const CounterManager = () => {
   }, []);
 
   const handleAdd = async () => {
-    if (!name || !service) return alert("Fill all fields");
-    await addCounter({ name, service });
-    setName("");
-    setService("");
-    loadCounters();
+    if (!counterName || !serviceType) return alert("Fill all fields");
+    setSaving(true);
+    try {
+      await createCounter({ counterName, serviceType });
+      setCounterName("");
+      await loadCounters();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to create counter");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleRemove = async (id) => {
-    if (!window.confirm("Remove this counter?")) return;
-    await removeCounter(id);
-    loadCounters();
+  const handleStatusChange = async (id, status) => {
+    try {
+      await updateStatus(id, status);
+      await loadCounters();
+    } catch (err) {
+      alert(err?.response?.data?.message || "Failed to update counter status");
+    }
   };
 
   return (
-    <div className="bg-white rounded-xl shadow p-6">
+    <div className="bg-white rounded-xl shadow p-4">
       <h3 className="text-xl font-bold mb-4">Counter Management</h3>
 
-      {/* Add Counter */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-col md:flex-row gap-3 mb-4">
         <input
           className="border rounded px-3 py-2 flex-1"
           placeholder="Counter Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          value={counterName}
+          onChange={(e) => setCounterName(e.target.value)}
         />
-        <input
+        <select
           className="border rounded px-3 py-2 flex-1"
-          placeholder="Service Type"
-          value={service}
-          onChange={(e) => setService(e.target.value)}
-        />
+          value={serviceType}
+          onChange={(e) => setServiceType(e.target.value)}
+        >
+          <option>Admissions</option>
+          <option>Finance</option>
+          <option>Examinations</option>
+          <option>Library</option>
+          <option>Accommodation</option>
+          <option>Student Records</option>
+          <option>ICT Support</option>
+          <option>Counselling</option>
+          <option>General Enquiries</option>
+        </select>
         <button
           onClick={handleAdd}
-          className="bg-[#182B5C] text-white px-4 rounded"
+          disabled={saving}
+          className="bg-[#182B5C] text-white px-4 rounded disabled:opacity-60"
         >
-          Add
+          {saving ? "Adding..." : "Add"}
+        </button>
+        <button onClick={loadCounters} className="border px-4 rounded">
+          Refresh
         </button>
       </div>
 
-      {/* Counter List */}
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left">
             <th>Name</th>
-            <th>Service</th>
+            <th>Service Type</th>
             <th>Status</th>
-            <th />
+            <th>Set Status</th>
           </tr>
         </thead>
         <tbody>
           {counters.map((c) => (
             <tr key={c._id} className="border-b">
-              <td>{c.name}</td>
-              <td>{c.service}</td>
-              <td className={c.active ? "text-green-600" : "text-gray-400"}>
-                {c.active ? "Active" : "Inactive"}
+              <td>{c.counterName}</td>
+              <td>{c.serviceType}</td>
+              <td className={c.status === "open" ? "text-green-600" : c.status === "busy" ? "text-amber-600" : "text-gray-500"}>
+                {c.status}
               </td>
               <td>
-                <button
-                  onClick={() => handleRemove(c._id)}
-                  className="text-red-600 text-xs"
+                <select
+                  value={c.status}
+                  onChange={(e) => handleStatusChange(c._id, e.target.value)}
+                  className="border rounded px-2 py-1 text-xs"
                 >
-                  Remove
-                </button>
+                  <option value="open">open</option>
+                  <option value="busy">busy</option>
+                  <option value="closed">closed</option>
+                </select>
               </td>
             </tr>
           ))}

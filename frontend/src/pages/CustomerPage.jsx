@@ -12,6 +12,12 @@ import { getCurrentUser } from "../services/authService";
 import { getUserUploads, uploadDocuments } from "../services/uploadService";
 import { getClearanceStatus } from "../services/clearanceService";
 import { getMyFeedback, submitFeedback } from "../services/feedbackService";
+import {
+  cancelAppointment,
+  createAppointment,
+  getMyAppointments,
+  joinQueueFromAppointment,
+} from "../services/appointmentService";
 import ClearanceStatus from "../components/ClearanceStatus";
 import io from "socket.io-client";
 
@@ -49,6 +55,19 @@ const DEPARTMENT_TO_ACTION = {
   academics: "register_units",
 };
 
+const SERVICE_OPTIONS = [
+  "Admissions",
+  "Finance",
+  "Examinations",
+  "Student Records",
+  "Registry",
+  "Library",
+  "Accommodation",
+  "ICT Support",
+  "Counselling",
+  "General Enquiries",
+];
+
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const getUserId = (user) => user?._id || user?.id || null;
@@ -66,6 +85,15 @@ const getProgram = (user) => user?.program || user?.course || user?.department |
 const getYear = (user) => user?.studentYear || user?.year || user?.yearOfStudy || "";
 
 const getQueueDisplayStatus = (status) => (status === "open" ? "active" : "closed");
+const CLEAR_STATUSES = ["CLEARED", "PAID", "APPROVED"];
+const SERVICE_TO_CLEARANCE_KEY = {
+  Finance: "finance",
+  Examinations: "examinations",
+  "Student Records": "academics",
+  Library: "library",
+  Accommodation: "hostel",
+  "ICT Support": "ict",
+};
 
 const applyQueueMetrics = (ticketData, overview) => {
   if (!ticketData) return ticketData;
@@ -89,15 +117,23 @@ const CustomerPage = () => {
   const [loadingTicket, setLoadingTicket] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [nearTurnAlert, setNearTurnAlert] = useState("");
+  const [showNotifPopup, setShowNotifPopup] = useState(false);
+  const [notifPopupMessage, setNotifPopupMessage] = useState("");
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
   const [clearance, setClearance] = useState({});
   const [selectedAction, setSelectedAction] = useState(SMART_ACTIONS[0]);
   const [queueOverview, setQueueOverview] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [bookingServiceType, setBookingServiceType] = useState("Finance");
+  const [bookingTime, setBookingTime] = useState("");
+  const [bookingLoading, setBookingLoading] = useState(false);
   const [ticketHistory, setTicketHistory] = useState([]);
   const [uploads, setUploads] = useState([]);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [feedbackList, setFeedbackList] = useState([]);
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [isVipRequest, setIsVipRequest] = useState(false);
   const [feedbackForm, setFeedbackForm] = useState({
     type: "feedback",
     rating: 5,
@@ -111,23 +147,37 @@ const CustomerPage = () => {
   const notificationsEndRef = useRef(null);
   const ticketPanelRef = useRef(null);
   const token = localStorage.getItem("token");
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     (async () => {
+      if (!token) {
+        window.location.href = "/";
+        return;
+      }
       try {
         const me = await getCurrentUser();
         const resolved = me?.user || me;
-        if (resolved) setUser(resolved);
-        else {
+        if (resolved) {
+          setUser(resolved);
+        } else {
           const stored = localStorage.getItem("user");
           if (stored) setUser(JSON.parse(stored));
         }
-      } catch {
+        setAuthChecked(true);
+      } catch (err) {
+        const status = err?.response?.status;
+        if (status === 401 || status === 403) {
+          localStorage.clear();
+          window.location.href = "/";
+          return;
+        }
         const stored = localStorage.getItem("user");
         if (stored) setUser(JSON.parse(stored));
+        setAuthChecked(true);
       }
     })();
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     if (!user) return;
@@ -157,6 +207,19 @@ const CustomerPage = () => {
       }
     })();
   }, [token, ticketHistory.length]);
+
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const data = await getMyAppointments(token);
+        setAppointments(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Appointments fetch failed", err);
+        setAppointments([]);
+      }
+    })();
+  }, [token, ticketStatus]);
 
   useEffect(() => {
     if (!user) return;
@@ -247,6 +310,15 @@ const CustomerPage = () => {
 
   useEffect(() => {
     notificationsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [notifications]);
+
+  useEffect(() => {
+    if (!notifications.length) return;
+    const latest = notifications[0];
+    setNotifPopupMessage(latest?.message || "New notification");
+    setShowNotifPopup(true);
+    const t = setTimeout(() => setShowNotifPopup(false), 2500);
+    return () => clearTimeout(t);
   }, [notifications]);
 
   useEffect(() => {
@@ -341,6 +413,128 @@ const CustomerPage = () => {
     ticketPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const createQueueTicketForService = async (serviceType) => {
+    if (!user) return alert("User not loaded");
+    if (ticket && ticket.status !== "completed" && ticket.status !== "cancelled") {
+      return alert(`You already have an active ticket for ${ticket.serviceType}. Cancel it to join a new queue.`);
+    }
+
+    const userId = getUserId(user);
+    setLoadingTicket(true);
+    try {
+      const res = await createTicket({
+        serviceType,
+        studentName: user.name,
+        email: user.email,
+        userId,
+        isVIP: Boolean(isVipRequest),
+      });
+
+      let newTicket = res.ticket;
+      try {
+        const next = await getNextTicket(serviceType, token);
+        if (next?.ticketNumber && newTicket?.ticketNumber) {
+          const ahead = Math.max(next.ticketNumber - newTicket.ticketNumber, 0);
+          newTicket = { ...newTicket, peopleAhead: ahead, estimatedWait: ahead * 5 };
+        }
+      } catch (etaErr) {
+        console.warn("Could not calculate ETA from next ticket", etaErr);
+      }
+
+      setTicket(applyQueueMetrics(newTicket, queueOverview));
+      setTicketStatus(newTicket.status);
+      setIsVipRequest(false);
+      return newTicket;
+    } catch (err) {
+      console.error("Ticket creation failed:", err);
+      alert(err?.response?.data?.message || "Failed to join queue");
+      return null;
+    } finally {
+      setLoadingTicket(false);
+    }
+  };
+
+  const getWorkflowPlan = () => {
+    const financeStatus = clearance?.finance?.status || "";
+    const financeCleared = ["PAID", "CLEARED", "APPROVED"].includes(financeStatus);
+    const route =
+      selectedAction.id === "exam_block"
+        ? [!financeCleared ? "Finance" : null, "Examinations"].filter(Boolean)
+        : selectedAction.id === "register_units"
+        ? [!financeCleared ? "Finance" : null, "Student Records"].filter(Boolean)
+        : ["Finance"];
+
+    return route.map((serviceType) => {
+      const key = SERVICE_TO_CLEARANCE_KEY[serviceType];
+      const status = key ? clearance?.[key]?.status || "PENDING" : "PENDING";
+      return { serviceType, done: CLEAR_STATUSES.includes(status), status };
+    });
+  };
+
+  const handleAutoJoinWorkflow = async () => {
+    const plan = getWorkflowPlan();
+    const nextStep = plan.find((step) => !step.done);
+    if (!nextStep) {
+      return alert("All workflow steps are already complete.");
+    }
+    await createQueueTicketForService(nextStep.serviceType);
+  };
+
+  const refreshAppointments = async () => {
+    try {
+      const data = await getMyAppointments(token);
+      setAppointments(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn("Appointments refresh failed", err);
+    }
+  };
+
+  const handleBookAppointment = async () => {
+    if (!bookingServiceType || !bookingTime) return alert("Select service and time.");
+    setBookingLoading(true);
+    try {
+      await createAppointment(
+        {
+          serviceType: bookingServiceType,
+          appointmentTime: new Date(bookingTime).toISOString(),
+        },
+        token
+      );
+      await refreshAppointments();
+      alert("Appointment booked.");
+    } catch (err) {
+      console.error("Book appointment failed", err);
+      alert(err?.response?.data?.message || "Failed to book appointment");
+    } finally {
+      setBookingLoading(false);
+    }
+  };
+
+  const handleJoinFromAppointment = async (appointmentId) => {
+    try {
+      const res = await joinQueueFromAppointment(appointmentId, token);
+      if (res?.ticket) {
+        setTicket(applyQueueMetrics(res.ticket, queueOverview));
+        setTicketStatus(res.ticket.status);
+      }
+      await refreshAppointments();
+      alert("Joined queue from appointment.");
+    } catch (err) {
+      console.error("Join from appointment failed", err);
+      alert(err?.response?.data?.message || "Failed to join queue from appointment");
+    }
+  };
+
+  const handleCancelAppointment = async (appointmentId) => {
+    try {
+      await cancelAppointment(appointmentId, token);
+      await refreshAppointments();
+    } catch (err) {
+      console.error("Cancel appointment failed", err);
+      alert(err?.response?.data?.message || "Failed to cancel appointment");
+    }
+  };
+
   const handleGenerateTicket = async () => {
     if (!user) return alert("User not loaded");
 
@@ -354,36 +548,12 @@ const CustomerPage = () => {
     }
 
     const resolvedDepartment = SMART_ROUTING[selectedAction.id];
-    const userId = getUserId(user);
+    await createQueueTicketForService(resolvedDepartment);
+  };
 
-    setLoadingTicket(true);
-    try {
-      const res = await createTicket({
-        serviceType: resolvedDepartment,
-        studentName: user.name,
-        email: user.email,
-        userId,
-      });
-
-      let newTicket = res.ticket;
-      try {
-        const next = await getNextTicket(resolvedDepartment, token);
-        if (next?.ticketNumber && newTicket?.ticketNumber) {
-          const ahead = Math.max(next.ticketNumber - newTicket.ticketNumber, 0);
-          newTicket = { ...newTicket, peopleAhead: ahead, estimatedWait: ahead * 5 };
-        }
-      } catch (etaErr) {
-        console.warn("Could not calculate ETA from next ticket", etaErr);
-      }
-
-      setTicket(applyQueueMetrics(newTicket, queueOverview));
-      setTicketStatus(newTicket.status);
-    } catch (err) {
-      console.error("Ticket creation failed:", err);
-      alert(err?.response?.data?.message || "Failed to join queue");
-    } finally {
-      setLoadingTicket(false);
-    }
+  const handleJoinService = async (serviceType) => {
+    if (!serviceType) return;
+    await createQueueTicketForService(serviceType);
   };
 
   const handleCancelTicket = async () => {
@@ -488,13 +658,27 @@ const CustomerPage = () => {
 
   const overall = getOverallStatus();
   const eligibility = getActionEligibility(selectedAction);
+  const workflowPlan = getWorkflowPlan();
   const regNo = getRegistrationNo(user);
   const program = getProgram(user);
   const year = getYear(user);
 
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-gray-600">
+        Checking your session...
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
+        {showNotifPopup && (
+          <div className="fixed top-5 right-5 bg-gray-900 text-white text-xs px-4 py-2 rounded shadow-lg z-20">
+            {notifPopupMessage}
+          </div>
+        )}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white rounded-xl shadow p-4 mb-6 gap-4">
           <div>
             <div className="font-bold text-lg">{user?.name || "Student"}</div>
@@ -505,7 +689,29 @@ const CustomerPage = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`text-xs px-3 py-1 rounded-full font-semibold ${overall.tone}`}>{overall.label}</span>
+            <div className="relative">
+              <button
+                onClick={() => setNotifDropdownOpen((v) => !v)}
+                className="text-xs px-3 py-1 rounded-full font-semibold border"
+              >
+                Notifications ({notifications.length})
+              </button>
+              {notifDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white border rounded shadow-lg z-10">
+                  <div className="px-3 py-2 text-xs text-gray-500 border-b">Previous notifications</div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {notifications.length === 0 && (
+                      <div className="px-3 py-2 text-xs text-gray-500">No notifications yet</div>
+                    )}
+                    {notifications.map((n, i) => (
+                      <div key={i} className="px-3 py-2 text-xs border-b last:border-b-0">
+                        {n.message}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => {
                 localStorage.clear();
@@ -536,6 +742,34 @@ const CustomerPage = () => {
                   <div className="text-xs text-gray-500">Routes to {SMART_ROUTING[a.id]}</div>
                 </button>
               ))}
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-bold text-xl mb-3">Workflow Automation</h3>
+              <div className="text-xs text-gray-500 mb-3">
+                Multi-office routing for <span className="font-semibold">{selectedAction.title}</span>
+              </div>
+              <div className="space-y-2 mb-3">
+                {workflowPlan.map((step, idx) => (
+                  <div key={`${step.serviceType}-${idx}`} className="border rounded p-2 flex items-center justify-between">
+                    <div className="text-sm">{step.serviceType}</div>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                        step.done ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {step.done ? "done" : "next"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={handleAutoJoinWorkflow}
+                disabled={loadingTicket}
+                className="w-full bg-[#182B5C] text-white py-2 rounded disabled:opacity-60"
+              >
+                {loadingTicket ? "Joining..." : "Auto-Join Next Queue Step"}
+              </button>
             </div>
 
             <div className="bg-white p-4 rounded-xl shadow">
@@ -654,6 +888,31 @@ const CustomerPage = () => {
                   : "Resolve Fees First"}
               </button>
 
+              <label className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+                <input
+                  type="checkbox"
+                  checked={isVipRequest}
+                  onChange={(e) => setIsVipRequest(e.target.checked)}
+                />
+                Mark this ticket as VIP
+              </label>
+
+              <div className="mt-4">
+                <div className="text-xs text-gray-500 mb-2">Join a specific service</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {SERVICE_OPTIONS.map((service) => (
+                    <button
+                      key={service}
+                      onClick={() => handleJoinService(service)}
+                      disabled={loadingTicket}
+                      className="border rounded px-2 py-2 text-xs hover:bg-gray-50 disabled:opacity-60"
+                    >
+                      {service}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {!eligibility.eligible && (
                 <div className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
                   {eligibility.reason}
@@ -680,6 +939,11 @@ const CustomerPage = () => {
                       {STATUS_CONFIG[ticketStatus]?.label || ticketStatus}
                     </span>
                   </div>
+                  {ticket.isVIP && (
+                    <div className="mt-1 inline-flex items-center text-xs font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                      VIP Priority
+                    </div>
+                  )}
                   <div>People ahead: {ticket.peopleAhead ?? "-"}</div>
                   <div>Estimated wait: {ticket.estimatedWait ?? "-"} mins</div>
                   {nearTurnAlert && (
@@ -737,6 +1001,64 @@ const CustomerPage = () => {
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-3">Self-Service & Uploads</h3>
               <div className="space-y-3">
+                <div className="border rounded p-3">
+                  <div className="font-semibold text-sm mb-2">Smart Appointment Booking</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+                    <select
+                      value={bookingServiceType}
+                      onChange={(e) => setBookingServiceType(e.target.value)}
+                      className="border rounded p-2 text-sm"
+                    >
+                      <option>Admissions</option>
+                      <option>Finance</option>
+                      <option>Examinations</option>
+                      <option>Library</option>
+                      <option>Accommodation</option>
+                      <option>Student Records</option>
+                      <option>ICT Support</option>
+                      <option>Counselling</option>
+                      <option>General Enquiries</option>
+                    </select>
+                    <input
+                      type="datetime-local"
+                      value={bookingTime}
+                      onChange={(e) => setBookingTime(e.target.value)}
+                      className="border rounded p-2 text-sm"
+                    />
+                    <button
+                      onClick={handleBookAppointment}
+                      disabled={bookingLoading}
+                      className="bg-[#182B5C] text-white rounded p-2 text-sm disabled:opacity-60"
+                    >
+                      {bookingLoading ? "Booking..." : "Book"}
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {appointments.length === 0 && <div className="text-xs text-gray-500">No appointments yet</div>}
+                    {appointments.slice(0, 6).map((a) => (
+                      <div key={a._id} className="border rounded p-2 text-xs">
+                        <div className="font-semibold">
+                          {a.serviceType} • {new Date(a.appointmentTime).toLocaleString()}
+                        </div>
+                        <div className="text-gray-500 mb-1">Status: {a.status}</div>
+                        {a.status === "booked" && (
+                          <div className="flex gap-2">
+                            <button onClick={() => handleJoinFromAppointment(a._id)} className="border rounded px-2 py-1">
+                              Join Queue
+                            </button>
+                            <button
+                              onClick={() => handleCancelAppointment(a._id)}
+                              className="border rounded px-2 py-1 text-red-700"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div>
                   <input
                     type="file"
@@ -783,7 +1105,9 @@ const CustomerPage = () => {
 
             <div className="bg-white p-4 rounded-xl shadow">
               <h3 className="font-bold text-xl mb-1">Central Queue Overview</h3>
-              <p className="text-xs text-gray-500 mb-3">Reference only. It helps you compare queue pressure across departments.</p>
+              <p className="text-xs text-gray-500 mb-3">
+                Live queues. Tap Join to enter a specific service queue.
+              </p>
               <div className="space-y-2">
                 {queueOverview.length === 0 && <div className="text-sm text-gray-500">Queue data unavailable</div>}
                 {queueOverview.map((q) => (
@@ -794,13 +1118,23 @@ const CustomerPage = () => {
                         {q.waiting} waiting | {q.estimatedWaitMins} mins
                       </div>
                     </div>
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                        q.status === "open" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {getQueueDisplayStatus(q.status)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                          q.status === "open" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {getQueueDisplayStatus(q.status)}
+                      </span>
+                      <button
+                        onClick={() => handleJoinService(q.serviceType)}
+                        disabled={loadingTicket || q.status !== "open"}
+                        className="text-xs border rounded px-2 py-1 disabled:opacity-50"
+                        title={q.status !== "open" ? "Queue is closed" : "Join queue"}
+                      >
+                        Join
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

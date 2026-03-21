@@ -19,6 +19,8 @@ import {
   getStaffPerformance,
   getTicketsPerDay,
 } from "../services/adminService";
+import CounterManager from "../components/admin/CounterManager";
+import LoadBalancingDashboard from "../components/LoadBalancingDashboard";
 
 const Card = ({ title, children }) => (
   <div className="bg-white rounded-xl shadow p-4">
@@ -251,6 +253,12 @@ const AdminDashboard = () => {
             </table>
           </div>
         </Card>
+
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-slate-900">Counters & Load Balancing</h2>
+          <CounterManager />
+          <LoadBalancingDashboard />
+        </div>
       </div>
     </div>
   );

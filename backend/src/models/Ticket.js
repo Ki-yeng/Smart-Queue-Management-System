@@ -4,6 +4,7 @@ const SERVICE_ENUM = [
   "Admissions",
   "Finance",
   "Examinations",
+  "Registry",
   "Library",
   "Accommodation",
   "Student Records",

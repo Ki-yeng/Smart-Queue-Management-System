@@ -46,6 +46,7 @@ app.use("/api/load-balance", require("./routes/loadBalancingRoutes"));
 app.use("/api/health", require("./routes/healthRoutes"));
 app.use("/api/integrations", require("./routes/integrationRoutes"));
 app.use("/api/office", require("./routes/officeIntegrationRoutes"));
+app.use("/api/appointments", require("./routes/appointmentRoutes"));
 app.use("/api/feedback", require("./routes/feedbackRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 // Add this line to your routes section
