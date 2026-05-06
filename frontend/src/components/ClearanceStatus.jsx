@@ -43,8 +43,8 @@ const ClearanceStatus = ({ user, onResolveDepartment }) => {
   if (!user) return null;
 
   return (
-    <div className="bg-white p-4 rounded-xl shadow">
-      <h3 className="font-bold text-xl mb-3">My Clearance Status</h3>
+    <div className="rounded-xl bg-white p-3 shadow">
+      <h3 className="mb-2 text-lg font-bold">My Clearance Status</h3>
 
       {loading ? (
         <p>Loading clearance status...</p>
@@ -57,7 +57,7 @@ const ClearanceStatus = ({ user, onResolveDepartment }) => {
             const isResolved = RESOLVED_STATUSES.includes(status);
 
             return (
-              <li key={dept} className="border-b pb-2">
+              <li key={dept} className="border-b pb-2 last:border-b-0">
                 <div className="flex justify-between items-center">
                   <span className="capitalize font-medium">{dept}</span>
                   <span className={`font-semibold ${isResolved ? "text-green-600" : "text-red-600"}`}>

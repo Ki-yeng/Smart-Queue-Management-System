@@ -22,17 +22,20 @@ import {
 import CounterManager from "../components/admin/CounterManager";
 import LoadBalancingDashboard from "../components/LoadBalancingDashboard";
 
-const Card = ({ title, children }) => (
-  <div className="bg-white rounded-xl shadow p-4">
-    <div className="text-sm font-semibold text-slate-700 mb-3">{title}</div>
+const Card = ({ title, children, action = null }) => (
+  <div className="bg-white rounded-xl shadow p-3">
+    <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="text-sm font-semibold text-slate-700">{title}</div>
+      {action}
+    </div>
     {children}
   </div>
 );
 
 const KpiCard = ({ label, value }) => (
-  <div className="bg-white rounded-xl shadow p-4">
+  <div className="bg-white rounded-xl shadow p-3">
     <div className="text-xs text-slate-500">{label}</div>
-    <div className="text-2xl font-bold text-slate-900 mt-1">{value}</div>
+    <div className="mt-1 text-xl font-bold text-slate-900">{value}</div>
   </div>
 );
 
@@ -81,8 +84,6 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     fetchDashboard();
-    const interval = setInterval(fetchDashboard, 30000);
-    return () => clearInterval(interval);
   }, []);
 
   const summary = useMemo(() => {
@@ -123,12 +124,12 @@ const AdminDashboard = () => {
   }, [ticketsPerDay, departmentStats, averageWaitTime]);
 
   if (loading) {
-    return <div className="min-h-screen bg-slate-50 p-6 text-slate-700">Loading admin dashboard...</div>;
+    return <div className="min-h-screen bg-slate-50 p-4 md:p-5 text-slate-700">Loading admin dashboard...</div>;
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
+      <div className="min-h-screen bg-slate-50 p-4 md:p-5">
         <div className="max-w-7xl mx-auto">
           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg mb-4">{error}</div>
           <button onClick={fetchDashboard} className="bg-slate-900 text-white px-4 py-2 rounded">
@@ -140,9 +141,9 @@ const AdminDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-5">
+      <div className="max-w-7xl mx-auto space-y-4">
+        <div className="flex flex-col gap-3 rounded-xl bg-white p-3 shadow md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
             <p className="text-sm text-slate-500">Live analytics from MongoDB aggregation pipelines</p>
@@ -163,7 +164,7 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <KpiCard label="Total Tickets Today" value={summary.totalToday} />
           <KpiCard label="Total Tickets (All Time)" value={summary.totalTickets} />
           <KpiCard label="Pending Tickets" value={summary.pending} />
@@ -172,9 +173,9 @@ const AdminDashboard = () => {
           <KpiCard label="No-Show Rate" value={`${operationalMetrics.noShowRate || 0}%`} />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Card title="Tickets Per Day (Last 30 Days)">
-            <div className="h-72">
+            <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={ticketsPerDay}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -188,7 +189,7 @@ const AdminDashboard = () => {
           </Card>
 
           <Card title="Hourly Peak Ticket Distribution">
-            <div className="h-72">
+            <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={hourlyPeak}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -202,13 +203,13 @@ const AdminDashboard = () => {
           </Card>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           <h2 className="text-lg font-semibold text-slate-900">Department Summary</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {departmentStats.map((department) => (
-              <div key={department.department} className="bg-white rounded-xl shadow p-4 space-y-3">
+              <div key={department.department} className="bg-white rounded-xl shadow p-3 space-y-2">
                 <div className="text-sm font-semibold text-slate-800">{department.department || "Unassigned"}</div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm">
                   <div>
                     <div className="text-slate-500">Total</div>
                     <div className="font-semibold text-slate-900">{department.total || 0}</div>
@@ -231,8 +232,11 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        <Card title="Staff Performance">
-          <div className="overflow-x-auto">
+        <details className="rounded-xl bg-white p-3 shadow" open>
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700">
+            Staff Performance
+          </summary>
+          <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border border-slate-200 bg-slate-100 text-slate-700">
@@ -252,12 +256,26 @@ const AdminDashboard = () => {
               </tbody>
             </table>
           </div>
-        </Card>
+        </details>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <h2 className="text-lg font-semibold text-slate-900">Counters & Load Balancing</h2>
-          <CounterManager />
-          <LoadBalancingDashboard />
+          <details className="rounded-xl bg-white p-3 shadow" open>
+            <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700">
+              Counter Management
+            </summary>
+            <div className="mt-3">
+              <CounterManager />
+            </div>
+          </details>
+          <details className="rounded-xl bg-white p-3 shadow">
+            <summary className="cursor-pointer list-none text-sm font-semibold text-slate-700">
+              Load Balancing Insights
+            </summary>
+            <div className="mt-3">
+              <LoadBalancingDashboard />
+            </div>
+          </details>
         </div>
       </div>
     </div>

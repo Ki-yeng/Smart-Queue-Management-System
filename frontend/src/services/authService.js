@@ -86,6 +86,36 @@ export const getCurrentUser = async () => {
   }
 };
 
+// Forgot password
+export const forgotPassword = async (email) => {
+  try {
+    const response = await axios.post(
+      `${API_URL}/forgot-password`,
+      { email },
+      { headers: { "Content-Type": "application/json" } }
+    );
+    return response.data;
+  } catch (err) {
+    console.error("Forgot password error:", err.response?.data || err);
+    throw err;
+  }
+};
+
+// Reset password
+export const resetPassword = async ({ token, password }) => {
+  try {
+    const response = await axios.post(
+      `${API_URL}/reset-password`,
+      { token, password },
+      { headers: { "Content-Type": "application/json" } }
+    );
+    return response.data;
+  } catch (err) {
+    console.error("Reset password error:", err.response?.data || err);
+    throw err;
+  }
+};
+
 // Update current user profile
 export const updateCurrentUser = async (payload) => {
   const token = localStorage.getItem("token");

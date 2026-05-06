@@ -77,7 +77,7 @@ export default function LoadBalancingDashboard() {
 
   if (loading && !metrics) {
     return (
-      <div className="p-6 bg-white rounded-lg shadow">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-48 mb-4"></div>
           <div className="h-40 bg-gray-200 rounded"></div>
@@ -88,7 +88,7 @@ export default function LoadBalancingDashboard() {
 
   if (error) {
     return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded-lg">
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
         <p className="text-red-600">{error}</p>
         <button
           onClick={fetchMetrics}
@@ -105,23 +105,23 @@ export default function LoadBalancingDashboard() {
   const { summary, counterMetrics = [], mostLoaded, leastLoaded, recommendations = [] } = metrics;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* System Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {/* Total Counters */}
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="rounded-lg bg-white p-3 shadow-sm">
           <p className="text-gray-600 text-sm">Total Counters</p>
           <p className="text-3xl font-bold text-gray-800">{summary.totalCounters}</p>
         </div>
 
         {/* Available Counters */}
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="rounded-lg bg-white p-3 shadow-sm">
           <p className="text-gray-600 text-sm">Available</p>
           <p className="text-3xl font-bold text-green-600">{summary.availableCounters}</p>
         </div>
 
         {/* System Load */}
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="rounded-lg bg-white p-3 shadow-sm">
           <p className="text-gray-600 text-sm">System Load</p>
           <p className={`text-3xl font-bold ${getSystemLoadColor(summary.systemLoad)}`}>
             {summary.systemLoad.charAt(0).toUpperCase() + summary.systemLoad.slice(1)}
@@ -130,7 +130,7 @@ export default function LoadBalancingDashboard() {
         </div>
 
         {/* Total Queue Length */}
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="rounded-lg bg-white p-3 shadow-sm">
           <p className="text-gray-600 text-sm">Customers Waiting</p>
           <p className="text-3xl font-bold text-blue-600">{summary.totalQueueLength}</p>
         </div>
@@ -138,7 +138,7 @@ export default function LoadBalancingDashboard() {
 
       {/* Alerts Section */}
       {summary.overloadedCounters > 0 && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+        <div className="rounded border-l-4 border-red-500 bg-red-50 p-3">
           <p className="text-red-700 font-semibold">⚠️ {summary.overloadedCounters} counter(s) overloaded</p>
           <p className="text-sm text-red-600 mt-1">Consider opening additional counters or rebalancing tickets</p>
         </div>
@@ -146,7 +146,7 @@ export default function LoadBalancingDashboard() {
 
       {/* Counter Metrics Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="p-6 border-b border-gray-200">
+        <div className="border-b border-gray-200 p-4">
           <h3 className="text-lg font-semibold text-gray-800">Counter Load Status</h3>
           <p className="text-sm text-gray-600 mt-1">Sorted by load (lowest first)</p>
         </div>
@@ -155,21 +155,21 @@ export default function LoadBalancingDashboard() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Counter</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Queue</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Load</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Est. Wait</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Counter</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Queue</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Load</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Est. Wait</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {counterMetrics.map((counter) => (
                 <tr key={counter.counterId} className="hover:bg-gray-50">
-                  <td className="px-6 py-3">
+                  <td className="px-4 py-3">
                     <p className="font-medium text-gray-800">{counter.counterName}</p>
                     <p className="text-xs text-gray-500">{counter.serviceTypes?.join(', ')}</p>
                   </td>
-                  <td className="px-6 py-3">
+                  <td className="px-4 py-3">
                     <span className={`inline-block px-2 py-1 text-xs font-semibold rounded ${
                       counter.status === 'open' ? 'bg-green-100 text-green-800' :
                       counter.status === 'busy' ? 'bg-yellow-100 text-yellow-800' :
@@ -178,7 +178,7 @@ export default function LoadBalancingDashboard() {
                       {counter.status.charAt(0).toUpperCase() + counter.status.slice(1)}
                     </span>
                   </td>
-                  <td className="px-6 py-3">
+                  <td className="px-4 py-3">
                     <p className="text-sm text-gray-700">
                       {counter.totalQueueLength} customer{counter.totalQueueLength !== 1 ? 's' : ''}
                     </p>
@@ -186,7 +186,7 @@ export default function LoadBalancingDashboard() {
                       ({counter.servingCount} serving, {counter.waitingCount} waiting)
                     </p>
                   </td>
-                  <td className="px-6 py-3">
+                  <td className="px-4 py-3">
                     <div className="flex items-center space-x-2">
                       <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
                         <div
@@ -202,7 +202,7 @@ export default function LoadBalancingDashboard() {
                       {getLoadStatusLabel(counter.loadScore)}
                     </p>
                   </td>
-                  <td className="px-6 py-3 text-sm text-gray-700">
+                  <td className="px-4 py-3 text-sm text-gray-700">
                     ~{counter.estimatedWaitTime} min
                   </td>
                 </tr>
@@ -213,9 +213,9 @@ export default function LoadBalancingDashboard() {
       </div>
 
       {/* Extremes Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {mostLoaded && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
             <h4 className="font-semibold text-red-800 mb-2">🔴 Most Loaded</h4>
             <p className="text-lg font-bold text-gray-800">{mostLoaded.counterName}</p>
             <p className="text-sm text-gray-600">Load: {mostLoaded.loadScore}%</p>
@@ -224,7 +224,7 @@ export default function LoadBalancingDashboard() {
         )}
 
         {leastLoaded && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3">
             <h4 className="font-semibold text-green-800 mb-2">🟢 Least Loaded</h4>
             <p className="text-lg font-bold text-gray-800">{leastLoaded.counterName}</p>
             <p className="text-sm text-gray-600">Load: {leastLoaded.loadScore}%</p>
@@ -235,14 +235,14 @@ export default function LoadBalancingDashboard() {
 
       {/* Rebalancing Recommendations */}
       {recommendations.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
           <h3 className="text-lg font-semibold text-blue-900 mb-4">
             💡 Load Rebalancing Recommendations ({recommendations.length})
           </h3>
 
           <div className="space-y-3">
             {recommendations.map((rec, idx) => (
-              <div key={idx} className="bg-white p-4 rounded border border-blue-100">
+              <div key={idx} className="rounded border border-blue-100 bg-white p-3">
                 <p className="text-sm font-medium text-gray-700 mb-2">{rec.reason}</p>
                 <div className="flex items-center justify-between text-sm">
                   <div>

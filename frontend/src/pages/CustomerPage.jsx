@@ -6,6 +6,7 @@ import {
   getLatestTicket,
   getNextTicket,
   getQueueOverview,
+  getQueuePosition,
   getUserTickets,
 } from "../services/ticketService";
 import { getCurrentUser } from "../services/authService";
@@ -109,6 +110,30 @@ const applyQueueMetrics = (ticketData, overview) => {
   };
 };
 
+const getQueuePositionFromUpdate = (tickets = [], ticketNumber) => {
+  if (!ticketNumber || !Array.isArray(tickets)) return null;
+  const idx = tickets.findIndex((t) => Number(t.ticketNumber) === Number(ticketNumber));
+  return idx >= 0 ? idx + 1 : null;
+};
+
+const formatAppointmentTime = (value) => {
+  if (!value) return "";
+
+  return new Date(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  }).replace(" ", "");
+};
+
+const formatAppointmentDateTime = (value) => {
+  if (!value) return "";
+
+  const appointmentDate = new Date(value);
+  const date = appointmentDate.toLocaleDateString();
+  const time = formatAppointmentTime(appointmentDate);
+  return `${date}, ${time}`;
+};
+
 const CustomerPage = () => {
   const [announcementIndex, setAnnouncementIndex] = useState(0);
   const [user, setUser] = useState(null);
@@ -134,6 +159,12 @@ const CustomerPage = () => {
   const [feedbackList, setFeedbackList] = useState([]);
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [isVipRequest, setIsVipRequest] = useState(false);
+  const [showAllQueueServices, setShowAllQueueServices] = useState(false);
+  const [showAllNotifications, setShowAllNotifications] = useState(false);
+  const [showAllTicketHistory, setShowAllTicketHistory] = useState(false);
+  const [showAllAppointments, setShowAllAppointments] = useState(false);
+  const [showAllUploads, setShowAllUploads] = useState(false);
+  const [showAllFeedback, setShowAllFeedback] = useState(false);
   const [feedbackForm, setFeedbackForm] = useState({
     type: "feedback",
     rating: 5,
@@ -266,11 +297,26 @@ const CustomerPage = () => {
   }, [ticket, user, token]);
 
   useEffect(() => {
+    if (!ticket) return;
+    updateQueuePositionFromApi();
+    const interval = setInterval(updateQueuePositionFromApi, 10000);
+    return () => clearInterval(interval);
+  }, [ticket?.serviceType, ticket?.ticketNumber]);
+
+  useEffect(() => {
     if (!user) return;
     const userId = getUserId(user);
     if (!userId) return;
+    if (socketRef.current) return;
 
     socketRef.current = io(API_URL, { auth: { token } });
+
+    socketRef.current.on("connect", () => {
+      socketRef.current.emit("joinUserRoom", { userId });
+      if (ticket?.serviceType) {
+        socketRef.current.emit("joinServiceQueue", { serviceType: ticket.serviceType });
+      }
+    });
 
     socketRef.current.on("ticketStatusUpdate", (data) => {
       if (String(data.userId) !== String(userId)) return;
@@ -305,8 +351,40 @@ const CustomerPage = () => {
       setTicket((prev) => (prev ? { ...prev, status: "no_show" } : prev));
     });
 
+    socketRef.current.on("queueUpdated", (data) => {
+      if (!data?.serviceType) return;
+      if (!ticket || data.serviceType !== ticket.serviceType) return;
+      const position = getQueuePositionFromUpdate(data.tickets, ticket.ticketNumber);
+      if (position) {
+        const peopleAhead = Math.max(position - 1, 0);
+        setTicket((prev) =>
+          prev
+            ? {
+                ...prev,
+                queuePosition: position,
+                peopleAhead,
+                estimatedWait: Number(data?.estimatedWaitMins || peopleAhead * 5),
+              }
+            : prev
+        );
+      }
+    });
+
     return () => socketRef.current && socketRef.current.disconnect();
   }, [user, token]);
+
+  useEffect(() => {
+    if (!socketRef.current || !user) return;
+    const userId = getUserId(user);
+    if (!userId) return;
+
+    if (socketRef.current.connected) {
+      socketRef.current.emit("joinUserRoom", { userId });
+      if (ticket?.serviceType) {
+        socketRef.current.emit("joinServiceQueue", { serviceType: ticket.serviceType });
+      }
+    }
+  }, [user, ticket?.serviceType]);
 
   useEffect(() => {
     notificationsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -443,6 +521,18 @@ const CustomerPage = () => {
 
       setTicket(applyQueueMetrics(newTicket, queueOverview));
       setTicketStatus(newTicket.status);
+      setQueueOverview((prev) =>
+        prev.map((service) =>
+          service.serviceType === serviceType
+            ? {
+                ...service,
+                waiting: Number(service.waiting || 0) + 1,
+                estimatedWaitMins: Number(service.estimatedWaitMins || 0) + 5,
+                status: "open",
+              }
+            : service
+        )
+      );
       setIsVipRequest(false);
       return newTicket;
     } catch (err) {
@@ -451,6 +541,28 @@ const CustomerPage = () => {
       return null;
     } finally {
       setLoadingTicket(false);
+    }
+  };
+
+  const updateQueuePositionFromApi = async () => {
+    if (!ticket?._id) return;
+    try {
+      const data = await getQueuePosition(ticket._id, token);
+      if (!data) return;
+      if (data.position) {
+        setTicket((prev) =>
+          prev
+            ? {
+                ...prev,
+                queuePosition: data.position,
+                peopleAhead: data.peopleAhead,
+                estimatedWait: data.estimatedWait,
+              }
+            : prev
+        );
+      }
+    } catch (err) {
+      console.warn("Queue position refresh failed", err);
     }
   };
 
@@ -662,6 +774,12 @@ const CustomerPage = () => {
   const regNo = getRegistrationNo(user);
   const program = getProgram(user);
   const year = getYear(user);
+  const visibleNotifications = showAllNotifications ? notifications : notifications.slice(0, 4);
+  const visibleTicketHistory = showAllTicketHistory ? ticketHistory : ticketHistory.slice(0, 3);
+  const visibleAppointments = showAllAppointments ? appointments : appointments.slice(0, 3);
+  const visibleUploads = showAllUploads ? uploads : uploads.slice(0, 3);
+  const visibleFeedback = showAllFeedback ? feedbackList : feedbackList.slice(0, 3);
+  const visibleQueueOverview = showAllQueueServices ? queueOverview : queueOverview.slice(0, 6);
 
   if (!authChecked) {
     return (
@@ -672,14 +790,14 @@ const CustomerPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 p-4 md:p-5">
       <div className="max-w-6xl mx-auto">
         {showNotifPopup && (
           <div className="fixed top-5 right-5 bg-gray-900 text-white text-xs px-4 py-2 rounded shadow-lg z-20">
             {notifPopupMessage}
           </div>
         )}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-white rounded-xl shadow p-4 mb-6 gap-4">
+        <div className="flex flex-col gap-3 rounded-xl bg-white p-3 shadow md:flex-row md:items-center md:justify-between">
           <div>
             <div className="font-bold text-lg">{user?.name || "Student"}</div>
             <div className="text-sm text-gray-500">{user?.email}</div>
@@ -724,17 +842,17 @@ const CustomerPage = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-4 pt-4 lg:grid-cols-3">
+          <div className="space-y-4">
             <ClearanceStatus user={user} onResolveDepartment={handleResolveDepartment} />
 
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Smart Actions</h3>
+            <div className="rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-2 text-lg font-bold">Smart Actions</h3>
               {SMART_ACTIONS.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => setSelectedAction(a)}
-                  className={`w-full text-left p-3 mb-2 border rounded hover:bg-gray-50 ${
+                  className={`mb-2 w-full rounded border p-2.5 text-left hover:bg-gray-50 ${
                     selectedAction.id === a.id ? "bg-gray-100" : ""
                   }`}
                 >
@@ -744,14 +862,14 @@ const CustomerPage = () => {
               ))}
             </div>
 
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Workflow Automation</h3>
-              <div className="text-xs text-gray-500 mb-3">
+            <div className="rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-2 text-lg font-bold">Workflow Automation</h3>
+              <div className="mb-2 text-xs text-gray-500">
                 Multi-office routing for <span className="font-semibold">{selectedAction.title}</span>
               </div>
-              <div className="space-y-2 mb-3">
+              <div className="mb-3 space-y-2">
                 {workflowPlan.map((step, idx) => (
-                  <div key={`${step.serviceType}-${idx}`} className="border rounded p-2 flex items-center justify-between">
+                  <div key={`${step.serviceType}-${idx}`} className="flex items-center justify-between rounded border p-2">
                     <div className="text-sm">{step.serviceType}</div>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
@@ -772,8 +890,8 @@ const CustomerPage = () => {
               </button>
             </div>
 
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Feedback, Rating & Complaints</h3>
+            <div className="rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-2 text-lg font-bold">Feedback, Rating & Complaints</h3>
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <select
@@ -852,7 +970,7 @@ const CustomerPage = () => {
                 <div className="text-xs text-gray-500 pt-2">Recent submissions</div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {feedbackList.length === 0 && <div className="text-xs text-gray-500">No submissions yet</div>}
-                  {feedbackList.map((item) => (
+                  {visibleFeedback.map((item) => (
                     <div key={item._id} className="border rounded p-2 text-xs">
                       <div className="font-semibold capitalize">
                         {item.type} {item.rating ? `(${item.rating}/5)` : ""} - {item.status}
@@ -861,16 +979,25 @@ const CustomerPage = () => {
                     </div>
                   ))}
                 </div>
+                {feedbackList.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllFeedback((prev) => !prev)}
+                    className="text-xs font-medium text-blue-700 hover:underline"
+                  >
+                    {showAllFeedback ? "Show less" : `Show more (${feedbackList.length - 3} more)`}
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
-          <div ref={ticketPanelRef} className="space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Ticket</h3>
+          <div ref={ticketPanelRef} className="space-y-4">
+            <div className="rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-2 text-lg font-bold">Ticket</h3>
 
               {ticket && ticket.status !== "completed" && ticket.status !== "cancelled" && (
-                <button onClick={handleCancelTicket} className="w-full bg-red-600 text-white py-2 rounded mb-3">
+                <button onClick={handleCancelTicket} className="mb-2 w-full rounded bg-red-600 py-2 text-white">
                   Cancel Active Ticket
                 </button>
               )}
@@ -878,7 +1005,7 @@ const CustomerPage = () => {
               <button
                 onClick={handleGenerateTicket}
                 disabled={loadingTicket || !eligibility.eligible}
-                className="w-full bg-[#182B5C] text-white py-3 rounded font-bold mb-2 disabled:opacity-50"
+                className="mb-2 w-full rounded bg-[#182B5C] py-2.5 font-bold text-white disabled:opacity-50"
                 title={eligibility.reason}
               >
                 {loadingTicket
@@ -888,7 +1015,7 @@ const CustomerPage = () => {
                   : "Resolve Fees First"}
               </button>
 
-              <label className="flex items-center gap-2 text-xs text-gray-600 mb-3">
+              <label className="mb-2 flex items-center gap-2 text-xs text-gray-600">
                 <input
                   type="checkbox"
                   checked={isVipRequest}
@@ -897,15 +1024,15 @@ const CustomerPage = () => {
                 Mark this ticket as VIP
               </label>
 
-              <div className="mt-4">
-                <div className="text-xs text-gray-500 mb-2">Join a specific service</div>
+              <div className="mt-3">
+                <div className="mb-2 text-xs text-gray-500">Join a specific service</div>
                 <div className="grid grid-cols-2 gap-2">
                   {SERVICE_OPTIONS.map((service) => (
                     <button
                       key={service}
                       onClick={() => handleJoinService(service)}
                       disabled={loadingTicket}
-                      className="border rounded px-2 py-2 text-xs hover:bg-gray-50 disabled:opacity-60"
+                      className="rounded border px-2 py-1.5 text-xs hover:bg-gray-50 disabled:opacity-60"
                     >
                       {service}
                     </button>
@@ -914,7 +1041,7 @@ const CustomerPage = () => {
               </div>
 
               {!eligibility.eligible && (
-                <div className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
+                <div className="mb-2 rounded border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-700">
                   {eligibility.reason}
                   <button
                     type="button"
@@ -944,6 +1071,7 @@ const CustomerPage = () => {
                       VIP Priority
                     </div>
                   )}
+                  <div>Queue position: {ticket.queuePosition ?? (ticket.peopleAhead != null ? ticket.peopleAhead + 1 : "-")}</div>
                   <div>People ahead: {ticket.peopleAhead ?? "-"}</div>
                   <div>Estimated wait: {ticket.estimatedWait ?? "-"} mins</div>
                   {nearTurnAlert && (
@@ -965,45 +1093,67 @@ const CustomerPage = () => {
               )}
             </div>
 
-            <div className="bg-white p-4 rounded-xl shadow h-48 overflow-y-auto">
-              <h3 className="font-bold text-xl mb-2">Notifications</h3>
+            <div className="h-44 overflow-y-auto rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-2 text-lg font-bold">Notifications</h3>
               {notifications.length === 0 && <p className="text-sm">No notifications</p>}
-              {notifications.map((n, i) => (
-                <div key={i} className="text-sm">
+              {visibleNotifications.map((n, i) => (
+                <div key={i} className="mb-1 text-sm">
                   {n.message}
                 </div>
               ))}
+              {notifications.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllNotifications((prev) => !prev)}
+                  className="text-xs font-medium text-blue-700 hover:underline"
+                >
+                  {showAllNotifications ? "Show less" : `Show more (${notifications.length - 4} more)`}
+                </button>
+              )}
               <div ref={notificationsEndRef} />
             </div>
 
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Ticket History</h3>
-              {ticketHistory.length === 0 && <div className="text-sm text-gray-500">No ticket history yet</div>}
-              <div className="space-y-2">
-                {ticketHistory.slice(0, 5).map((t) => (
-                  <div key={t._id} className="border rounded p-2">
+            <details className="rounded-xl bg-white p-3 shadow">
+              <summary className="list-none cursor-pointer text-lg font-bold">
+                Ticket History
+              </summary>
+              <div className="mt-2 space-y-2">
+                {ticketHistory.length === 0 && <div className="text-sm text-gray-500">No ticket history yet</div>}
+                {visibleTicketHistory.map((t) => (
+                  <div key={t._id} className="rounded border p-2">
                     <div className="font-semibold">
                       #{t.ticketNumber} | {t.serviceType}
                     </div>
                     <div className="text-xs text-gray-500">Status: {t.status}</div>
                   </div>
                 ))}
+                {ticketHistory.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTicketHistory((prev) => !prev)}
+                    className="text-xs font-medium text-blue-700 hover:underline"
+                  >
+                    {showAllTicketHistory ? "Show less" : `Show more (${ticketHistory.length - 3} more)`}
+                  </button>
+                )}
               </div>
-            </div>
+            </details>
 
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-2">Announcements</h3>
-              {announcements[announcementIndex]}
-            </div>
+            <details className="rounded-xl bg-white p-3 shadow">
+              <summary className="list-none cursor-pointer text-lg font-bold">
+                Announcements
+              </summary>
+              <div className="mt-2 text-sm text-gray-700">{announcements[announcementIndex]}</div>
+            </details>
           </div>
 
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-3">Self-Service & Uploads</h3>
+          <div className="space-y-4">
+            <div className="rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-2 text-lg font-bold">Self-Service & Uploads</h3>
               <div className="space-y-3">
-                <div className="border rounded p-3">
-                  <div className="font-semibold text-sm mb-2">Smart Appointment Booking</div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+                <div className="rounded border p-2.5">
+                  <div className="mb-2 text-sm font-semibold">Smart Appointment Booking</div>
+                  <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-3">
                     <select
                       value={bookingServiceType}
                       onChange={(e) => setBookingServiceType(e.target.value)}
@@ -1035,10 +1185,10 @@ const CustomerPage = () => {
                   </div>
                   <div className="space-y-2 max-h-40 overflow-y-auto">
                     {appointments.length === 0 && <div className="text-xs text-gray-500">No appointments yet</div>}
-                    {appointments.slice(0, 6).map((a) => (
+                    {visibleAppointments.map((a) => (
                       <div key={a._id} className="border rounded p-2 text-xs">
                         <div className="font-semibold">
-                          {a.serviceType} • {new Date(a.appointmentTime).toLocaleString()}
+                          {a.serviceType} • {formatAppointmentDateTime(a.appointmentTime)}
                         </div>
                         <div className="text-gray-500 mb-1">Status: {a.status}</div>
                         {a.status === "booked" && (
@@ -1057,6 +1207,15 @@ const CustomerPage = () => {
                       </div>
                     ))}
                   </div>
+                  {appointments.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllAppointments((prev) => !prev)}
+                      className="mt-2 text-xs font-medium text-blue-700 hover:underline"
+                    >
+                      {showAllAppointments ? "Show less" : `Show more (${appointments.length - 3} more)`}
+                    </button>
+                  )}
                 </div>
 
                 <div>
@@ -1073,19 +1232,32 @@ const CustomerPage = () => {
                 <button
                   onClick={handleUpload}
                   disabled={uploading || uploadFiles.length === 0}
-                  className="w-full bg-[#D0B216] py-2 rounded disabled:opacity-60"
+                  className="w-full rounded bg-[#D0B216] py-2 disabled:opacity-60"
                 >
                   {uploading ? "Uploading..." : "Upload Documents"}
                 </button>
-                <div className="text-xs text-gray-500">Recent uploads</div>
-                <div className="space-y-3">
-                  {(uploads || []).slice(0, 3).map((u) => (
-                    <div key={u._id} className="truncate text-xs text-gray-600">
-                      {u.originalName}
-                    </div>
-                  ))}
-                  {(!uploads || uploads.length === 0) && <div className="text-xs text-gray-600">No uploads yet</div>}
-                </div>
+                <details className="rounded border border-dashed p-2">
+                  <summary className="list-none cursor-pointer text-xs font-semibold text-gray-600">
+                    Recent uploads
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    {visibleUploads.map((u) => (
+                      <div key={u._id} className="truncate text-xs text-gray-600">
+                        {u.originalName}
+                      </div>
+                    ))}
+                    {(!uploads || uploads.length === 0) && <div className="text-xs text-gray-600">No uploads yet</div>}
+                    {uploads.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllUploads((prev) => !prev)}
+                        className="text-xs font-medium text-blue-700 hover:underline"
+                      >
+                        {showAllUploads ? "Show less" : `Show more (${uploads.length - 3} more)`}
+                      </button>
+                    )}
+                  </div>
+                </details>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <a className="border rounded p-2 text-center" href="/student/upload-docs">
                     Open Upload Center
@@ -1103,15 +1275,15 @@ const CustomerPage = () => {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl shadow">
-              <h3 className="font-bold text-xl mb-1">Central Queue Overview</h3>
-              <p className="text-xs text-gray-500 mb-3">
+            <div className="rounded-xl bg-white p-3 shadow">
+              <h3 className="mb-1 text-lg font-bold">Central Queue Overview</h3>
+              <p className="mb-2 text-xs text-gray-500">
                 Live queues. Tap Join to enter a specific service queue.
               </p>
               <div className="space-y-2">
                 {queueOverview.length === 0 && <div className="text-sm text-gray-500">Queue data unavailable</div>}
-                {queueOverview.map((q) => (
-                  <div key={q.serviceType} className="flex items-center justify-between border rounded p-2">
+                {visibleQueueOverview.map((q) => (
+                  <div key={q.serviceType} className="flex items-center justify-between rounded border p-2">
                     <div>
                       <div className="font-semibold">{q.serviceType}</div>
                       <div className="text-xs text-gray-500">
@@ -1128,9 +1300,9 @@ const CustomerPage = () => {
                       </span>
                       <button
                         onClick={() => handleJoinService(q.serviceType)}
-                        disabled={loadingTicket || q.status !== "open"}
+                        disabled={loadingTicket}
                         className="text-xs border rounded px-2 py-1 disabled:opacity-50"
-                        title={q.status !== "open" ? "Queue is closed" : "Join queue"}
+                        title="Join queue"
                       >
                         Join
                       </button>
@@ -1138,6 +1310,15 @@ const CustomerPage = () => {
                   </div>
                 ))}
               </div>
+              {queueOverview.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllQueueServices((prev) => !prev)}
+                  className="mt-2 text-xs font-medium text-blue-700 hover:underline"
+                >
+                  {showAllQueueServices ? "Show less" : `Show more (${queueOverview.length - 6} more)`}
+                </button>
+              )}
             </div>
           </div>
         </div>

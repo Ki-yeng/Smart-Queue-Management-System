@@ -1,5 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const User = require("../models/User");
 
 // ===== TOKEN GENERATION HELPERS =====
@@ -421,6 +422,76 @@ exports.refreshAccessToken = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Token refresh error:", err.message);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Forgot password (request reset token)
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email) {
+      return res.status(400).json({ message: "Email is required." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(200).json({ message: "If the email exists, a reset link was generated." });
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+    user.resetPasswordToken = hashedToken;
+    user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    await user.save();
+
+    return res.status(200).json({
+      message: "Password reset token generated.",
+      resetToken: rawToken, // For demo/dev flow
+      expiresInMinutes: 15,
+    });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Reset password using token
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) {
+      return res.status(400).json({ message: "Token and new password are required." });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters." });
+    }
+
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired reset token." });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(password, salt);
+
+    user.password = hashed;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    user.refreshToken = null;
+    user.refreshTokenExpires = null;
+    await user.save();
+
+    return res.status(200).json({ message: "Password reset successful. You can now sign in." });
+  } catch (err) {
+    console.error("Reset password error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

@@ -16,6 +16,9 @@ router.get("/", ticketController.getAllTickets);
 // Get waiting tickets (optional serviceType filter)
 router.get("/waiting", protect, staffOnly, ticketController.getWaitingTickets);
 
+// Get queue position for a ticket (student-safe)
+router.get("/position/:id", protect, customerOrStaff, ticketController.getQueuePosition);
+
 // Central queue overview (aggregated)
 router.get("/queue-overview", ticketController.getQueueOverview);
 

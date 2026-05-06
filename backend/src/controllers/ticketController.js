@@ -46,6 +46,26 @@ const normalizeClearance = (doc) => ({
   },
 });
 
+const emitQueueUpdatedForService = async (io, serviceType) => {
+  if (!io || !serviceType) return;
+  try {
+    const blockedUsers = await User.find({ blocked: true }).select("_id");
+    const blockedIds = blockedUsers.map((u) => u._id);
+
+    const tickets = await Ticket.find({
+      status: "waiting",
+      serviceType,
+      userId: { $nin: blockedIds },
+    })
+      .sort({ priorityScore: -1, createdAt: 1 })
+      .populate("userId", "name email studentYear isVIP hasAccessibilityNeeds");
+
+    emitQueueUpdated(io, serviceType, sortByPriority(tickets));
+  } catch (err) {
+    console.warn("emitQueueUpdatedForService failed:", err.message);
+  }
+};
+
 /**
  * Staff Smart Action: perform pre-defined actions on a ticket
  * actions: "markVIP", "markAccessibility", "setPriority", "cancel", "complete"
@@ -66,6 +86,7 @@ exports.staffAction = async (req, res) => {
     switch (action) {
       case "markVIP":
         ticket.priority = "vip";
+        ticket.isVIP = true;
         ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
         if (ticket.userId) await User.findByIdAndUpdate(ticket.userId, { isVIP: true });
         await ticket.save();
@@ -156,7 +177,7 @@ exports.staffAction = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketToServiceAndDashboard(io, ticket, "ticketUpdatedByStaff", { action });
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
     }
 
     res.json({ message: "Staff action executed", ticket, action, context });
@@ -171,7 +192,7 @@ exports.staffAction = async (req, res) => {
  */
 exports.createTicket = async (req, res) => {
   try {
-    const { serviceType, studentName, email, userId } = req.body;
+    const { serviceType, studentName, email, userId, isVIP } = req.body;
     if (!serviceType || !studentName || !email) {
       return res.status(400).json({ message: "serviceType, studentName and email are required" });
     }
@@ -204,6 +225,10 @@ exports.createTicket = async (req, res) => {
       }
     }
 
+    if (isVIP) {
+      priority = "vip";
+    }
+
     // Create ticket without counter assignment first
     const ticket = await Ticket.create({
       ticketNumber: nextTicketNumber,
@@ -213,6 +238,7 @@ exports.createTicket = async (req, res) => {
       email,
       userId: userId || null,
       priority,
+      isVIP: Boolean(isVIP),
       priorityScore: calculatePriorityScore({ createdAt: new Date(), priority }, user),
     });
 
@@ -230,7 +256,7 @@ exports.createTicket = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketCreated(io, ticket);
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
       await notifyNearTurnForService(io, ticket.serviceType);
     }
 
@@ -414,6 +440,55 @@ exports.getWaitingTickets = async (req, res) => {
   }
 };
 
+/**
+ * Get queue position for a specific ticket (student-safe)
+ */
+exports.getQueuePosition = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    if (ticket.status !== "waiting") {
+      return res.status(200).json({
+        message: "Ticket is not in waiting queue",
+        status: ticket.status,
+        position: null,
+        peopleAhead: null,
+        totalWaiting: 0,
+        estimatedWait: 0,
+      });
+    }
+
+    const blockedUsers = await User.find({ blocked: true }).select("_id");
+    const blockedIds = blockedUsers.map((u) => u._id);
+
+    const waiting = await Ticket.find({
+      status: "waiting",
+      serviceType: ticket.serviceType,
+      userId: { $nin: blockedIds },
+    }).sort({ priorityScore: -1, createdAt: 1 });
+
+    const index = waiting.findIndex((t) => String(t._id) === String(ticket._id));
+    const position = index >= 0 ? index + 1 : null;
+    const peopleAhead = position ? Math.max(position - 1, 0) : null;
+    const estimatedWait = peopleAhead != null ? peopleAhead * 5 : 0;
+
+    res.json({
+      message: "Queue position resolved",
+      serviceType: ticket.serviceType,
+      ticketNumber: ticket.ticketNumber,
+      position,
+      peopleAhead,
+      totalWaiting: waiting.length,
+      estimatedWait,
+    });
+  } catch (err) {
+    console.error("Get queue position error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 
 /**
  * Queue overview (centralized, per service)
@@ -468,6 +543,7 @@ exports.getQueueOverview = async (req, res) => {
       "Admissions",
       "Finance",
       "Examinations",
+      "Registry",
       "Library",
       "Accommodation",
       "Student Records",
@@ -490,7 +566,8 @@ exports.getQueueOverview = async (req, res) => {
           busy: counters.busy || 0,
           closed: counters.closed || 0,
         },
-        status: (counters.open || 0) > 0 ? "open" : "closed",
+        // Treat services with an active waiting queue as open for the customer overview.
+        status: (counters.open || 0) > 0 || waiting > 0 ? "open" : "closed",
       };
     });
 
@@ -677,7 +754,7 @@ exports.completeTicket = async (req, res) => {
         emitCounterStatusChanged(io, updatedCounter, "busy", "Ticket completed");
         emitCounterMetricsUpdated(io, updatedCounter);
       }
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
       await notifyNearTurnForService(io, ticket.serviceType);
     }
 
@@ -722,7 +799,7 @@ exports.holdTicket = async (req, res) => {
         emitCounterStatusUpdated(io, updatedCounter);
         emitCounterStatusChanged(io, updatedCounter, "busy", "Ticket put on hold");
       }
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
       await notifyNearTurnForService(io, ticket.serviceType);
     }
 
@@ -801,7 +878,7 @@ exports.cancelTicket = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketCancelled(io, ticket);
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
       await notifyNearTurnForService(io, ticket.serviceType);
     }
 
@@ -882,8 +959,8 @@ if (oldTicket.counterId) {
         reason: reason || "Transferred by staff",
       });
 
-      emitQueueUpdated(io, oldTicket.serviceType);
-      emitQueueUpdated(io, newTicket.serviceType);
+      await emitQueueUpdatedForService(io, oldTicket.serviceType);
+      await emitQueueUpdatedForService(io, newTicket.serviceType);
       await notifyNearTurnForService(io, oldTicket.serviceType);
       await notifyNearTurnForService(io, newTicket.serviceType);
     }
@@ -932,7 +1009,7 @@ exports.updateTicketPriority = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketPriorityUpdated(io, ticket, oldPriority);
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
     }
 
     res.json({
@@ -970,6 +1047,7 @@ exports.markAsVIP = async (req, res) => {
 
     const oldPriority = ticket.priority;
     ticket.priority = "vip";
+    ticket.isVIP = true;
     ticket.priorityScore = calculatePriorityScore(ticket, ticket.userId);
     await ticket.save();
 
@@ -977,7 +1055,7 @@ exports.markAsVIP = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketPriorityUpdated(io, ticket, oldPriority);
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
     }
 
     res.json({
@@ -1020,7 +1098,7 @@ exports.markAccessibilityNeeds = async (req, res) => {
     const io = req.app?.get("io");
     if (io) {
       emitTicketPriorityUpdated(io, ticket, oldPriority);
-      emitQueueUpdated(io, ticket.serviceType);
+      await emitQueueUpdatedForService(io, ticket.serviceType);
     }
 
     res.json({

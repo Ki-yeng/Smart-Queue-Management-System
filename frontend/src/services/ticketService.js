@@ -6,12 +6,12 @@ const API_URL = `${BASE.replace(/\/$/, "")}/api/tickets`;
 /* ================= STUDENT ================= */
 
 // Create a new ticket
-export const createTicket = async ({ serviceType, studentName, email, userId }) => {
+export const createTicket = async ({ serviceType, studentName, email, userId, isVIP }) => {
   const token = localStorage.getItem("token");
 
   const res = await axios.post(
     API_URL,
-    { serviceType, studentName, email, userId },
+    { serviceType, studentName, email, userId, isVIP },
     { headers: token ? { Authorization: `Bearer ${token}` } : {} }
   );
 
@@ -64,6 +64,15 @@ export const getWaitingTickets = async (token, serviceType = "") => {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   return res.data || [];
+};
+
+// Get queue position for a ticket (student-safe)
+export const getQueuePosition = async (ticketId, token) => {
+  const auth = token || localStorage.getItem("token");
+  const res = await axios.get(`${API_URL}/position/${ticketId}`, {
+    headers: auth ? { Authorization: `Bearer ${auth}` } : {},
+  });
+  return res.data || null;
 };
 
 export const getAllTickets = async ({ token, serviceType, status, priority, userId } = {}) => {

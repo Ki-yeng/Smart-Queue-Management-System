@@ -45,6 +45,10 @@ const ticketSchema = new mongoose.Schema(
       enum: ["normal", "high", "urgent", "vip"],
       default: "normal",
     },
+    isVIP: {
+      type: Boolean,
+      default: false,
+    },
     priorityScore: {
       type: Number,
       default: 0,

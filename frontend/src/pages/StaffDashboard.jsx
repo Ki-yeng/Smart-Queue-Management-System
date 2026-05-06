@@ -639,6 +639,7 @@ const StaffDashboard = () => {
         { key: "clearanceStatus", label: "Overall Clearance", value: integrationProfile.clearanceStatus },
       ]
     : [];
+  const lastIntegrationSource = integrationResult?.result?.source || integrationResult?.source || "unknown";
 
   return (
     <SidebarLayout>
@@ -667,8 +668,13 @@ const StaffDashboard = () => {
               <option>Admissions</option>
               <option>Finance</option>
               <option>Examinations</option>
+              <option>Registry</option>
               <option>Library</option>
               <option>Accommodation</option>
+              <option>Student Records</option>
+              <option>ICT Support</option>
+              <option>Counselling</option>
+              <option>General Enquiries</option>
             </select>
 
             <div className="space-y-2 max-h-[55vh] overflow-auto">
@@ -687,10 +693,15 @@ const StaffDashboard = () => {
                       t.priority ? "bg-yellow-50 border-yellow-200" : ""
                     }`}
                   >
-                    <div>
-                      <div className="font-semibold">
+                  <div>
+                    <div className="font-semibold">
                         #{t.ticketNumber} - {t.studentName || t.email}
-                      </div>
+                        {(t.priority === "vip" || t.isVIP) && (
+                          <span className="ml-2 text-xs font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                            VIP
+                          </span>
+                        )}
+                    </div>
 
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-gray-500">{t.serviceType}</span>
@@ -767,11 +778,16 @@ const StaffDashboard = () => {
                     Cancel
                   </button>
                   <select value={transferTarget} onChange={(e) => setTransferTarget(e.target.value)} className="flex-1 border p-2 rounded">
-                    <option>Finance</option>
                     <option>Admissions</option>
+                    <option>Finance</option>
                     <option>Examinations</option>
+                    <option>Registry</option>
                     <option>Library</option>
                     <option>Accommodation</option>
+                    <option>Student Records</option>
+                    <option>ICT Support</option>
+                    <option>Counselling</option>
+                    <option>General Enquiries</option>
                   </select>
                   <button onClick={doTransfer} disabled={actionLoading} className="flex-1 bg-[#D0B216] py-2 rounded">
                     Transfer
@@ -860,126 +876,146 @@ const StaffDashboard = () => {
           </div>
 
           <div className="bg-white rounded-xl shadow p-4 lg:col-span-2 max-h-[75vh] overflow-y-auto">
-            <h3 className="font-bold mb-3">Office Integration Center</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-              <input
-                value={integrationTargetId}
-                onChange={(e) => setIntegrationTargetId(e.target.value)}
-                placeholder="Target User ID"
-                className="border p-2 rounded md:col-span-2"
-              />
-              <button
-                type="button"
-                onClick={loadIntegrationProfile}
-                disabled={officeActionLoading || !targetUserId}
-                className="border rounded px-3 py-2"
-              >
-                Load Profile & Transactions
-              </button>
-              <button
-                type="button"
-                onClick={clearIntegrationContext}
-                className="border rounded px-3 py-2"
-              >
-                Clear Student Data
-              </button>
-            </div>
-
-            <div className="space-y-3 mb-4">
-              {OFFICE_ACTION_GROUPS.map((group) => (
-                <div key={group.title} className="border rounded p-3">
-                  <div className="text-sm font-semibold text-gray-700 mb-2">{group.title}</div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                    {group.actions.map((action) => (
-                      <button
-                        key={action.id}
-                        onClick={() => runOfficeAction(action.id)}
-                        disabled={officeActionLoading || !targetUserId}
-                        className="border rounded p-2 text-xs"
-                      >
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {integrationError && <div className="text-sm text-red-600 mb-2">{integrationError}</div>}
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div className="border rounded p-3 bg-slate-50">
-                <div className="font-semibold text-sm mb-2">Unified Profile</div>
-                {!integrationProfile && <div className="text-xs text-gray-500">No profile loaded.</div>}
-                {integrationProfile && (
-                  <div className="space-y-2">
-                    <div className="text-xs text-gray-600">User ID: {integrationProfile.userId || targetUserId}</div>
-                    {profileSections.map((section) => (
-                      <div key={section.key} className="border rounded p-2 bg-white">
-                        <div className="text-xs font-semibold">{section.label}</div>
-                        <div className="text-xs text-gray-600">Status: {section.value?.status || "n/a"}</div>
-                        <div className="text-xs text-gray-600">Note: {section.value?.note || "-"}</div>
-                      </div>
-                    ))}
-                    <details>
-                      <summary className="text-xs cursor-pointer text-gray-700">Profile technical details</summary>
-                      <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationProfile, null, 2)}</pre>
-                    </details>
-                  </div>
-                )}
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <div>
+                <h3 className="font-bold">Office Integration Center</h3>
+                <div className="text-xs text-gray-500">Run office checks and actions for a student.</div>
               </div>
-              <div className="border rounded p-3 bg-slate-50">
-                <div className="font-semibold text-sm mb-2">Recent Transactions</div>
-                {integrationTransactions.length === 0 && <div className="text-xs text-gray-500">No transactions found.</div>}
-                <div className="space-y-2 max-h-64 overflow-auto">
-                  {integrationTransactions.map((tx) => (
-                    <div key={tx._id || tx.trackingId} className="border rounded p-2 bg-white">
-                      <div className="text-xs font-semibold">
-                        {(tx.office || "office").toUpperCase()} - {tx.operation || "operation"}
-                      </div>
-                      <div className="text-xs text-gray-600">Status: {tx.status || "-"}</div>
-                      <div className="text-xs text-gray-600">Tracking: {tx.trackingId || "-"}</div>
-                      <div className="text-xs text-gray-600">
-                        Source: {tx.responsePayload?.source || "unknown"} |{" "}
-                        {new Date(tx.createdAt || Date.now()).toLocaleString()}
+              <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-700">
+                Source: {integrationResult ? lastIntegrationSource : "n/a"}
+              </span>
+            </div>
+
+            {integrationError && <div className="text-sm text-red-600 mb-3">{integrationError}</div>}
+
+            <div className="border rounded-lg p-3 bg-slate-50 mb-4">
+              <div className="text-sm font-semibold text-gray-700 mb-2">Target Student</div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <input
+                  value={integrationTargetId}
+                  onChange={(e) => setIntegrationTargetId(e.target.value)}
+                  placeholder="Target User ID"
+                  className="border p-2 rounded md:col-span-2"
+                />
+                <button
+                  type="button"
+                  onClick={loadIntegrationProfile}
+                  disabled={officeActionLoading || !targetUserId}
+                  className="border rounded px-3 py-2"
+                >
+                  Load Profile & Transactions
+                </button>
+                <button
+                  type="button"
+                  onClick={clearIntegrationContext}
+                  className="border rounded px-3 py-2"
+                >
+                  Clear Student Data
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-1">
+                <div className="text-sm font-semibold text-gray-700 mb-2">Office Actions</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+                  {OFFICE_ACTION_GROUPS.map((group) => (
+                    <div key={group.title} className="border rounded p-3">
+                      <div className="text-xs font-semibold text-gray-700 mb-2">{group.title}</div>
+                      <div className="flex flex-col gap-2">
+                        {group.actions.map((action) => (
+                          <button
+                            key={action.id}
+                            onClick={() => runOfficeAction(action.id)}
+                            disabled={officeActionLoading || !targetUserId}
+                            className="border rounded px-2 py-2 text-xs text-left hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            {action.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   ))}
                 </div>
-                <details className="mt-2">
-                  <summary className="text-xs cursor-pointer text-gray-700">Transaction technical details</summary>
-                  <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationTransactions || [], null, 2)}</pre>
-                </details>
               </div>
-            </div>
 
-            <div className="border rounded p-3 bg-slate-50 mt-3">
-              <div className="font-semibold text-sm mb-2">Last Operation Result</div>
-              {!integrationResult && <div className="text-xs text-gray-500">No operation run yet.</div>}
-              {integrationResult && (
-                <div className="space-y-1">
-                  <div className="text-xs text-gray-700">Tracking ID: {integrationResult.trackingId || "-"}</div>
-                  <div className="text-xs text-gray-700">Transaction Status: {integrationResult.transactionStatus || "-"}</div>
-                  <div className="text-xs text-gray-700">
-                    Source: {integrationResult?.result?.source || integrationResult?.source || "unknown"}
-                  </div>
-                  {integrationResult.result && typeof integrationResult.result === "object" && (
-                    <div className="border rounded p-2 bg-white">
-                      {Object.entries(integrationResult.result)
-                        .filter(([k]) => k !== "source")
-                        .map(([k, v]) => (
-                          <div key={k} className="text-xs text-gray-700">
-                            {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+              <div className="lg:col-span-2 space-y-3">
+                <div className="border rounded p-3 bg-slate-50">
+                  <div className="font-semibold text-sm mb-2">Unified Profile</div>
+                  {!integrationProfile && <div className="text-xs text-gray-500">No profile loaded.</div>}
+                  {integrationProfile && (
+                    <div className="space-y-2">
+                      <div className="text-xs text-gray-600">User ID: {integrationProfile.userId || targetUserId}</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {profileSections.map((section) => (
+                          <div key={section.key} className="border rounded p-2 bg-white">
+                            <div className="text-xs font-semibold">{section.label}</div>
+                            <div className="text-xs text-gray-600">Status: {section.value?.status || "n/a"}</div>
+                            <div className="text-xs text-gray-600">Note: {section.value?.note || "-"}</div>
                           </div>
                         ))}
+                      </div>
+                      <details>
+                        <summary className="text-xs cursor-pointer text-gray-700">Profile technical details</summary>
+                        <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationProfile, null, 2)}</pre>
+                      </details>
                     </div>
                   )}
-                  <details>
-                    <summary className="text-xs cursor-pointer text-gray-700">Full operation details</summary>
-                    <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationResult, null, 2)}</pre>
+                </div>
+
+                <div className="border rounded p-3 bg-slate-50">
+                  <div className="font-semibold text-sm mb-2">Recent Transactions</div>
+                  {integrationTransactions.length === 0 && <div className="text-xs text-gray-500">No transactions found.</div>}
+                  <div className="space-y-2 max-h-56 overflow-auto">
+                    {integrationTransactions.map((tx) => (
+                      <div key={tx._id || tx.trackingId} className="border rounded p-2 bg-white">
+                        <div className="text-xs font-semibold">
+                          {(tx.office || "office").toUpperCase()} - {tx.operation || "operation"}
+                        </div>
+                        <div className="text-xs text-gray-600">Status: {tx.status || "-"}</div>
+                        <div className="text-xs text-gray-600">Tracking: {tx.trackingId || "-"}</div>
+                        <div className="text-xs text-gray-600">
+                          Source: {tx.responsePayload?.source || "unknown"} |{" "}
+                          {new Date(tx.createdAt || Date.now()).toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <details className="mt-2">
+                    <summary className="text-xs cursor-pointer text-gray-700">Transaction technical details</summary>
+                    <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationTransactions || [], null, 2)}</pre>
                   </details>
                 </div>
-              )}
+
+                <div className="border rounded p-3 bg-slate-50">
+                  <div className="font-semibold text-sm mb-2">Last Operation Result</div>
+                  {!integrationResult && <div className="text-xs text-gray-500">No operation run yet.</div>}
+                  {integrationResult && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-gray-700">Tracking ID: {integrationResult.trackingId || "-"}</div>
+                      <div className="text-xs text-gray-700">
+                        Transaction Status: {integrationResult.transactionStatus || "-"}
+                      </div>
+                      <div className="text-xs text-gray-700">Source: {lastIntegrationSource}</div>
+                      {integrationResult.result && typeof integrationResult.result === "object" && (
+                        <div className="border rounded p-2 bg-white">
+                          {Object.entries(integrationResult.result)
+                            .filter(([k]) => k !== "source")
+                            .map(([k, v]) => (
+                              <div key={k} className="text-xs text-gray-700">
+                                {k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                      <details>
+                        <summary className="text-xs cursor-pointer text-gray-700">Full operation details</summary>
+                        <pre className="text-xs overflow-auto max-h-56 mt-2">{JSON.stringify(integrationResult, null, 2)}</pre>
+                      </details>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1074,9 +1110,14 @@ const ManualRegistration = ({ onRegistered }) => {
       <select value={service} onChange={(e) => setService(e.target.value)} className="border p-2 rounded">
         <option>Admissions</option>
         <option>Finance</option>
-        <option>Library</option>
         <option>Examinations</option>
+        <option>Registry</option>
+        <option>Library</option>
         <option>Accommodation</option>
+        <option>Student Records</option>
+        <option>ICT Support</option>
+        <option>Counselling</option>
+        <option>General Enquiries</option>
       </select>
       <button onClick={register} className="bg-[#D0B216] py-2 rounded">Register</button>
     </div>

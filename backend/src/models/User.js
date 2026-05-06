@@ -72,6 +72,16 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Password reset token (hashed) and expiry
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
+
     // Student classification (for priority queuing)
     studentYear: {
       type: String,

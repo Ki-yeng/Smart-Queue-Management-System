@@ -44,10 +44,10 @@ const CounterManager = () => {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow p-4">
-      <h3 className="text-xl font-bold mb-4">Counter Management</h3>
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <h3 className="mb-3 text-lg font-bold">Counter Management</h3>
 
-      <div className="flex flex-col md:flex-row gap-3 mb-4">
+      <div className="mb-3 flex flex-col gap-2 md:flex-row">
         <input
           className="border rounded px-3 py-2 flex-1"
           placeholder="Counter Name"
@@ -81,6 +81,7 @@ const CounterManager = () => {
         </button>
       </div>
 
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left">
@@ -120,6 +121,7 @@ const CounterManager = () => {
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 };
